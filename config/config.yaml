@@ -1,0 +1,53 @@
+# config.yaml -> Example config
+env: "local" # local, dev, prod
+listen_address: ":8080"
+data_dir: "./orchestrator-data"
+cluster_name: "my-dev-cluster"
+
+services:
+  - service_name: "web-server"
+    image: "nginx:latest"
+    replicas: 2
+    ports:
+      - host_port: 80
+        container_port: 80
+        protocol: "tcp"
+    resources:
+      cpu_millicores: 500
+      memory_bytes: 536870912
+    scale_policy:
+      min_replicas: 1
+      max_replicas: 5
+      target_cpu: 70.0
+      target_memory: 80.0
+      cooldown_seconds: 60
+    health_check:
+      type: "http"
+      http_path: "/health"
+      port: 80
+      interval: 30
+      timeout: 10
+      retries: 3
+
+  - service_name: "api-service"
+    image: "my-app/api:1.0.0"
+    replicas: 3
+    ports:
+      - host_port: 3000
+        container_port: 3000
+        protocol: "tcp"
+    resources:
+      cpu_millicores: 1000
+      memory_bytes: 1073741824
+    scale_policy:
+      min_replicas: 2
+      max_replicas: 10
+      target_cpu: 80.0
+      target_memory: 20.0
+      cooldown_seconds: 120
+    health_check:
+      type: "command"
+      command: ["curl", "-f", "http://localhost:3000/health"]
+      interval: 30
+      timeout: 15
+      retries: 3
