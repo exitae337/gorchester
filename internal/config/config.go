@@ -64,6 +64,7 @@ func MustLoad() *OchestratorConfig {
 	return &config
 }
 
+// Configuration validation -> config.yaml into OrchestratorConfig struct with cleanenv module
 func validateConfig(config *OchestratorConfig) error {
 	// Check service amd image names
 	var errorString strings.Builder
