@@ -12,6 +12,9 @@ services:
       - host_port: 80
         container_port: 80
         protocol: "tcp"
+      - host_port: 443
+        container_port: 443
+        protocol: "tcp"
     resources:
       cpu_millicores: 500
       memory_bytes: 536870912

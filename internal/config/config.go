@@ -29,14 +29,24 @@ type OchestratorConfig struct {
 	Services    []ServiceConfig `yaml:"services"`                                   // Services for orchestration
 }
 
+// TODO: comments
 type ServiceConfig struct {
-	ServiceName string               `yaml:"service_name" env-required:"true"` // Service name
-	Image       string               `yaml:"image" env-required:"true"`        // Docker-image name
-	Replicas    int                  `yaml:"replicas" env-default:"1"`         // Count of service instances
-	PortMapping []types.PortMapping  `yaml:"ports"`                            // Port mapping
-	Resources   types.ResourceLimits `yaml:"resources"`                        // Resources for service
-	ScalePolicy types.ScalePolicy    `yaml:"scale_policy"`                     // Scaling policy
-	HealthCheck types.HealthCheck    `yaml:"health_check"`                     // Health checking
+	ServiceName   string              `yaml:"service_name" json:"service_name"`
+	Image         string              `yaml:"image" json:"image"`
+	Replicas      int                 `yaml:"replicas" json:"replicas"`
+	Ports         []types.PortMapping `yaml:"ports" json:"ports"`
+	Env           []string            `yaml:"env" json:"env"`
+	Command       []string            `yaml:"command" json:"command"`
+	Volumes       []string            `yaml:"volumes" json:"volumes"`
+	Network       string              `yaml:"network" json:"network"`
+	NetworkMode   string              `yaml:"network_mode" json:"network_mode"`
+	DNS           []string            `yaml:"dns" json:"dns"`
+	ExtraHosts    []string            `yaml:"extra_hosts" json:"extra_hosts"`
+	RestartPolicy string              `yaml:"restart_policy" json:"restart_policy"`
+
+	Resources   types.ResourceRequirements `yaml:"resources"`    // Resources for service
+	ScalePolicy types.ScalePolicy          `yaml:"scale_policy"` // Scaling policy
+	HealthCheck types.HealthCheck          `yaml:"health_check"` // Health checking
 }
 
 // Load orchestrator configuration
@@ -80,7 +90,7 @@ func validateConfig(config *OchestratorConfig) error {
 			errorString.WriteString(fmt.Sprintf("service[%d] amount of replicas can't be less or equal to zero\n", i))
 		}
 		// Resources check
-		if service.Resources.CPUMillicores < MinMilliCores {
+		if service.Resources.CPUMilliCores < MinMilliCores {
 			errorString.WriteString(fmt.Sprintf("service[%d] amount of resources (millicores) can't be less than 5\n", i))
 		}
 		if service.Resources.MemoryBytes < MinMemoryBytes {

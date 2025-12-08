@@ -19,10 +19,12 @@ type PortMapping struct {
 	Protocol      Protocol `yaml:"protocol" env-default:"tcp"`      // TCP / UDP
 }
 
-// ResourceLimits -> Resources allocated to the container
-type ResourceLimits struct {
-	CPUMillicores int64 `yaml:"cpu_millicores" env-default:"500"`     // Ex: 1000 -> 1 CPU
-	MemoryBytes   int64 `yaml:"memory_bytes" env-default:"536870912"` // Amount of memory in bytes
+// ResourceRequirements -> Resources allocated to the container
+type ResourceRequirements struct {
+	CPUMilliCores int64  `yaml:"cpu_millicores" json:"cpu_millicores"`
+	MemoryBytes   int64  `yaml:"memory_bytes" json:"memory_bytes"`
+	DiskBytes     int64  `yaml:"disk_bytes" json:"disk_bytes"`
+	CPUSet        string `yaml:"cpu_set" json:"cpu_set"` // Example: "0-3", "0,1"
 }
 
 // ScalePolicu -> policy for auto-scaling
@@ -36,13 +38,14 @@ type ScalePolicy struct {
 
 // HealthCheck -> Service stats checking
 type HealthCheck struct {
-	Type     string   `yaml:"type" env-required:"true"` // "command", "http", "tcp"
-	Command  []string `yaml:"command,omitempty"`        // Command for health checking (if type == "command")
-	HTTPPath string   `yaml:"http_path,omitempty"`      // HTTP путь (адрес)
-	Port     int      `yaml:"port,omitempty"`           // Port
-	Interval int      `yaml:"interval"`                 // Interval for checking
-	Timeout  int      `yaml:"timeout"`                  // Timeout
-	Retries  int      `yaml:"retries"`                  // Amount of retries for health check
+	Type        string        `yaml:"type" json:"type"` // "http", "tcp", "command"
+	HTTPPath    string        `yaml:"http_path" json:"http_path"`
+	Port        int           `yaml:"port" json:"port"`
+	Command     []string      `yaml:"command" json:"command"`
+	Interval    time.Duration `yaml:"interval" json:"interval"`
+	Timeout     time.Duration `yaml:"timeout" json:"timeout"`
+	Retries     int           `yaml:"retries" json:"retries"`
+	StartPeriod time.Duration `yaml:"start_period" json:"start_period"`
 }
 
 // Node -> node type
