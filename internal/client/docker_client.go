@@ -143,6 +143,40 @@ func (dc *DockerClient) StartContainer(ctx context.Context, containerID string) 
 	return nil
 }
 
+// Stop container
+func (dc *DockerClient) StopContainer(ctx context.Context, containerID string) error {
+	const op = "client.StopContainer"
+
+	ctx, cancel := context.WithTimeout(ctx, dc.timeout)
+	defer cancel()
+
+	timeout := 10 // seconds
+	if err := dc.cli.ContainerStop(ctx, containerID, container.StopOptions{
+		Timeout: &timeout,
+	}); err != nil {
+		return fmt.Errorf("%s: failed to stop container: %s -> error: %w", op, containerID[:12], err)
+	}
+
+	return nil
+}
+
+// Remove container
+func (dc *DockerClient) RemoveContainer(ctx context.Context, containerID string) error {
+	const op = "client.RemoveDocker"
+	ctx, cancel := context.WithTimeout(ctx, dc.timeout)
+	defer cancel()
+
+	if err := dc.cli.ContainerRemove(ctx, containerID, container.RemoveOptions{
+		Force:         true,
+		RemoveVolumes: true,
+		RemoveLinks:   true,
+	}); err != nil {
+		return fmt.Errorf("%s: error with container %s removing: %w", op, containerID[:12], err)
+	}
+
+	return nil
+}
+
 // PullImage загружает образ Docker
 func (dc *DockerClient) PullImage(ctx context.Context, im string) error {
 	const op = "client.PullImage"
