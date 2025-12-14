@@ -1,4 +1,4 @@
-env: "development"
+env: "dev"
 listen_addr: ":8080"
 data_dir: "./test-data"
 cluster_name: "dev-cluster"
