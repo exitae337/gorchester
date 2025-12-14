@@ -2,7 +2,10 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"time"
 
 	"github.com/containerd/errdefs"
@@ -16,8 +19,7 @@ import (
 )
 
 const (
-	defaultTimeout = 30 * time.Second
-	labelPrefix    = "gorchester."
+	defaultTimeout = 15 * time.Second
 )
 
 // Docker client
@@ -52,7 +54,7 @@ func NewDockerClient() (*DockerClient, error) {
 }
 
 // Create Container
-func (dc *DockerClient) CreateContainer(ctx context.Context, service *config.ServiceConfig, taskID string) (string, error) {
+func (dc *DockerClient) CreateContainer(ctx context.Context, service *config.ServiceConfig, taskID string, logger *slog.Logger) (string, error) {
 	const op = "client.CreateContainer"
 
 	ctx, cancel := context.WithTimeout(ctx, dc.timeout)
@@ -61,7 +63,7 @@ func (dc *DockerClient) CreateContainer(ctx context.Context, service *config.Ser
 	if exists, err := dc.imageExists(ctx, service.Image); err != nil {
 		return "", fmt.Errorf("%s: failed to check image locally: %w", op, err)
 	} else if !exists {
-		if err := dc.PullImage(ctx, service.Image); err != nil {
+		if err := dc.PullImage(ctx, service.Image, logger); err != nil {
 			return "", fmt.Errorf("%s: failed to download image: %w", op, err)
 		}
 	}
@@ -88,7 +90,6 @@ func (dc *DockerClient) CreateContainer(ctx context.Context, service *config.Ser
 			Memory:     service.Resources.MemoryBytes,
 			MemorySwap: service.Resources.MemoryBytes,
 			CpusetCpus: service.Resources.CPUSet,
-			// DiskQouta...
 		},
 		Binds:       service.Volumes,
 		NetworkMode: container.NetworkMode(service.NetworkMode),
@@ -178,7 +179,7 @@ func (dc *DockerClient) RemoveContainer(ctx context.Context, containerID string)
 }
 
 // PullImage загружает образ Docker
-func (dc *DockerClient) PullImage(ctx context.Context, im string) error {
+func (dc *DockerClient) PullImage(ctx context.Context, im string, logger *slog.Logger) error {
 	const op = "client.PullImage"
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute) // Big timeout for downloading image
@@ -190,16 +191,22 @@ func (dc *DockerClient) PullImage(ctx context.Context, im string) error {
 	}
 	defer reader.Close()
 
-	// Read output
-	buf := make([]byte, 1024)
-	for {
-		_, err := reader.Read(buf)
-		if err != nil {
-			break
-		}
-		// Logging process with JSON output
-	}
+	// JSON decoder to show stream
+	decoder := json.NewDecoder(reader)
 
+	for {
+		var msg struct {
+			Status   string `json:"status"`
+			Progress string `json:"progress"`
+		}
+		if err := decoder.Decode(&msg); err != nil {
+			if err == io.EOF {
+				break
+			}
+			return fmt.Errorf("%s: failed to parse json messages from PullImage: %w", op, err)
+		}
+		logger.Info("downloading image", slog.String("status", msg.Status), slog.String("progress", msg.Progress))
+	}
 	return nil
 }
 
