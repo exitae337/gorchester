@@ -1,56 +1,62 @@
-# config.yaml -> Example config
-env: "local" # local, dev, prod
-listen_address: ":8080"
-data_dir: "./orchestrator-data"
-cluster_name: "my-dev-cluster"
+env: "development"
+listen_addr: ":8080"
+data_dir: "./test-data"
+cluster_name: "dev-cluster"
 
 services:
-  - service_name: "web-server"
-    image: "nginx:latest"
+  - service_name: "test-web"
+    image: "nginx:alpine"
     replicas: 2
     ports:
-      - host_port: 80
+      - host_port: 8081
         container_port: 80
         protocol: "tcp"
-      - host_port: 443
-        container_port: 443
-        protocol: "tcp"
     resources:
-      cpu_millicores: 500
-      memory_bytes: 536870912
+      cpu_millicores: 50
+      memory_bytes: 67108864  
     scale_policy:
       min_replicas: 1
-      max_replicas: 5
+      max_replicas: 3
       target_cpu: 70.0
-      target_memory: 80.0
       cooldown_seconds: 60
     health_check:
       type: "http"
-      http_path: "/health"
+      http_path: "/"
       port: 80
-      interval: 30
-      timeout: 10
+      interval: 10s
+      timeout: 5s
       retries: 3
 
-  - service_name: "api-service"
-    image: "my-app/api:1.0.0"
-    replicas: 3
+  - service_name: "test-cache"
+    image: "redis:alpine"
+    replicas: 1
     ports:
-      - host_port: 3000
-        container_port: 3000
+      - host_port: 6379
+        container_port: 6379
         protocol: "tcp"
     resources:
-      cpu_millicores: 1000
-      memory_bytes: 1073741824
-    scale_policy:
-      min_replicas: 2
-      max_replicas: 10
-      target_cpu: 80.0
-      target_memory: 20.0
-      cooldown_seconds: 120
+      cpu_millicores: 30
+      memory_bytes: 33554432  # 32MB
+    health_check:
+      type: "tcp"
+      port: 6379
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  - service_name: "echo-service"
+    image: "busybox:latest"
+    replicas: 1
+    command:
+      - "sh"
+      - "-c"
+      - "echo 'Test service running' && sleep 3600"
+    resources:
+      cpu_millicores: 10
+      memory_bytes: 16777216 
     health_check:
       type: "command"
-      command: ["curl", "-f", "http://localhost:3000/health"]
-      interval: 30
-      timeout: 15
-      retries: 3
+      command: ["echo", "healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 2

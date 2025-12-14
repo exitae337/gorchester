@@ -14,9 +14,9 @@ const (
 
 // PortMapping -> Port host, Container Port, Protocol
 type PortMapping struct {
-	HostPort      int      `yaml:"host_port" env-default:"80"`      // Host port
-	ContainerPort int      `yaml:"container_port" env-default:"80"` // Container port
-	Protocol      Protocol `yaml:"protocol" env-default:"tcp"`      // TCP / UDP
+	HostPort      int      `yaml:"host_port" json:"host_port"`           // Host port
+	ContainerPort int      `yaml:"container_port" json:"conatiner_port"` // Container port
+	Protocol      Protocol `yaml:"protocol" json:"protocol"`             // TCP / UDP
 }
 
 // ResourceRequirements -> Resources allocated to the container
@@ -29,11 +29,11 @@ type ResourceRequirements struct {
 
 // ScalePolicu -> policy for auto-scaling
 type ScalePolicy struct {
-	MinReplicas     int     `yaml:"min_replicas" env-default:"1"`      // Minimal amount of container (service) replicas
-	MaxReplicas     int     `yaml:"max_replicas" env-default:"3"`      // Maximum amount of container (service) replicas
-	TargetCPU       float64 `yaml:"target_cpu" env-default:"50.0"`     // 70.0 = 70% (for auto-scaling)
-	TargetMemory    float64 `yaml:"target_memory" env-default:"50.0"`  // Same as TargetCPU, but memory
-	CooldownSeconds int     `yaml:"cooldown_seconds" env-default:"10"` // TODO: what is it?
+	MinReplicas     int     `yaml:"min_replicas" json:"min_replicas"`         // Minimal amount of container (service) replicas
+	MaxReplicas     int     `yaml:"max_replicas" json:"max_replicas"`         // Maximum amount of container (service) replicas
+	TargetCPU       float64 `yaml:"target_cpu" json:"target_cpu"`             // 70.0 = 70% (for auto-scaling)
+	TargetMemory    float64 `yaml:"target_memory" json:"target_memory"`       // Same as TargetCPU, but memory
+	CooldownSeconds int     `yaml:"cooldown_seconds" json:"cooldown_seconds"` // TODO: what is it?
 }
 
 // HealthCheck -> Service stats checking
