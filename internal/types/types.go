@@ -70,17 +70,6 @@ type NodeUsage struct {
 	Memory int64   `json:"memory_usage"`
 }
 
-// Task -> структура для задачи
-type Task struct {
-	ID          string            `json:"id"`          // ID задачи
-	ServiceID   string            `json:"service_id"`  // ID сервиса
-	NodeID      string            `json:"node_id"`     // ID ноды
-	Image       string            `json:"image"`       // Имя image
-	Status      string            `json:"task_status"` // Статус задачи: 'running, stopped, failed'
-	Ports       []PortMapping     `json:"ports"`
-	Environment map[string]string `json:"environment"`
-}
-
 // Event -> событие
 type Event struct {
 	ID        string                 `json:"id"`             // ID события

@@ -53,7 +53,7 @@ func NewDockerClient() (*DockerClient, error) {
 	}, nil
 }
 
-// Create Container
+// Create Container: Create and start container by configuration
 func (dc *DockerClient) CreateContainer(ctx context.Context, service *config.ServiceConfig, taskID string, logger *slog.Logger) (string, error) {
 	const op = "client.CreateContainer"
 
@@ -67,6 +67,9 @@ func (dc *DockerClient) CreateContainer(ctx context.Context, service *config.Ser
 			return "", fmt.Errorf("%s: failed to download image: %w", op, err)
 		}
 	}
+
+	// Logger message
+	logger.Info("image downloaded successfully", slog.String("operation", op), slog.String("image", service.Image))
 
 	// Make configuration
 	containerConfig := &container.Config{
@@ -120,10 +123,11 @@ func (dc *DockerClient) CreateContainer(ctx context.Context, service *config.Ser
 		return "", fmt.Errorf("%s: error creating container: %w", op, err)
 	}
 
+	// Start container after creating
 	if err := dc.StartContainer(ctx, resp.ID); err != nil {
 		cleanUpCtx, cleanUpCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cleanUpCancel()
-		dc.cli.ContainerRemove(cleanUpCtx, resp.ID, container.RemoveOptions{})
+		defer cleanUpCancel()                                                  // cancel cleanUpCtx
+		dc.cli.ContainerRemove(cleanUpCtx, resp.ID, container.RemoveOptions{}) // Remove container if error occurred
 		return "", fmt.Errorf("%s: failed to start container: %w", op, err)
 	}
 
@@ -151,7 +155,7 @@ func (dc *DockerClient) StopContainer(ctx context.Context, containerID string) e
 	ctx, cancel := context.WithTimeout(ctx, dc.timeout)
 	defer cancel()
 
-	timeout := 10 // seconds
+	timeout := 10 // Timeout to stop the Container in seconds
 	if err := dc.cli.ContainerStop(ctx, containerID, container.StopOptions{
 		Timeout: &timeout,
 	}); err != nil {
@@ -182,7 +186,7 @@ func (dc *DockerClient) RemoveContainer(ctx context.Context, containerID string)
 func (dc *DockerClient) PullImage(ctx context.Context, im string, logger *slog.Logger) error {
 	const op = "client.PullImage"
 
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute) // Big timeout for downloading image
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute) // Big timeout for downloading image: 5 minutes
 	defer cancel()
 
 	reader, err := dc.cli.ImagePull(ctx, im, image.PullOptions{})
@@ -193,20 +197,31 @@ func (dc *DockerClient) PullImage(ctx context.Context, im string, logger *slog.L
 
 	// JSON decoder to show stream
 	decoder := json.NewDecoder(reader)
+	lastLogTime := time.Now()
+	logInterval := 3 * time.Second
 
 	for {
+		// Message structure for downloading progress
 		var msg struct {
 			Status   string `json:"status"`
 			Progress string `json:"progress"`
 		}
+
 		if err := decoder.Decode(&msg); err != nil {
 			if err == io.EOF {
 				break
 			}
 			return fmt.Errorf("%s: failed to parse json messages from PullImage: %w", op, err)
 		}
-		logger.Info("downloading image", slog.String("status", msg.Status), slog.String("progress", msg.Progress))
+
+		// Logging every 3 seconds
+		if time.Now().Sub(lastLogTime) >= logInterval || msg.Status == "Download complete" {
+			logger.Info("downloading image", slog.String("status", msg.Status), slog.String("progress", msg.Progress))
+			lastLogTime = time.Now()
+		}
+
 	}
+
 	return nil
 }
 
