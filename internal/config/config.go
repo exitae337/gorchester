@@ -50,7 +50,7 @@ type ServiceConfig struct {
 	HealthCheck types.HealthCheck          `yaml:"health_check"` // Health checking
 }
 
-// Load orchestrator configuration
+// Load orchestrator configuration -> Main Loading configuration process
 func MustLoad() *OchestratorConfig {
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
@@ -146,7 +146,7 @@ func validateConfig(config *OchestratorConfig) error {
 	}
 }
 
-// LoadConfig -> for validator
+// LoadConfig -> for validation process
 func LoadConfig(path string) (*OchestratorConfig, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, fmt.Errorf("config file does not exist: %s", path)

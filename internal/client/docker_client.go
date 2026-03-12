@@ -18,6 +18,8 @@ import (
 	"github.com/exitae337/gorchester/internal/types"
 )
 
+// ContainerManager interface realization
+
 const (
 	defaultTimeout = 15 * time.Second
 )
@@ -182,7 +184,7 @@ func (dc *DockerClient) RemoveContainer(ctx context.Context, containerID string)
 	return nil
 }
 
-// PullImage загружает образ Docker
+// Download Docker image
 func (dc *DockerClient) PullImage(ctx context.Context, im string, logger *slog.Logger) error {
 	const op = "client.PullImage"
 

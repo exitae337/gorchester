@@ -7,6 +7,9 @@ import (
 	"github.com/exitae337/gorchester/internal/types"
 )
 
+// Task -> Единица работы оркестратора - один запущенный контейнер.
+// The minimum value of orchestrator work -> Container = Task
+
 // Status type
 type TaskStatus string
 
@@ -24,7 +27,7 @@ type Task struct {
 	ID            string                `json:"id"`                    // Task ID
 	ServiceName   string                `json:"service_name"`          // Service name
 	ContainerID   string                `json:"container_id"`          // Container's ID with service
-	Status        TaskStatus            `json:"task_status"`           // Task status
+	Status        TaskStatus            `json:"task_status"`           // Task status (current)
 	DesiredState  TaskStatus            `json:"desired_state"`         // Desired state of Task (container)
 	NodeID        string                `json:"node_id"`               // Node ID
 	CreatedAt     time.Time             `json:"created_at"`            // Created timestamp
@@ -39,6 +42,60 @@ type Task struct {
 	MemoryUsage   int64                 `json:"mem_usage"`             // Memory usage in bytes
 	Labels        map[string]string     `json:"labels"`                // Meta info
 	ServiceConfig *config.ServiceConfig `json:"service_config"`        // Service configuration
+}
+
+// Task DeepCopy
+func (t *Task) DeepCopy() *Task {
+	if t == nil {
+		return nil
+	}
+
+	copy := &Task{
+		ID:           t.ID,
+		ServiceName:  t.ServiceName,
+		ContainerID:  t.ContainerID,
+		Status:       t.Status,
+		DesiredState: t.DesiredState,
+		NodeID:       t.NodeID,
+		CreatedAt:    t.CreatedAt,
+		UpdatedAt:    t.UpdatedAt,
+		ExitCode:     t.ExitCode,
+		Error:        t.Error,
+		RestartCount: t.RestartCount,
+		CPUUsage:     t.CPUUsage,
+		MemoryUsage:  t.MemoryUsage,
+	}
+
+	if t.StartedAt != nil {
+		started := *t.StartedAt
+		copy.StartedAt = &started
+	}
+
+	if t.FinishedAt != nil {
+		finished := *t.FinishedAt
+		copy.FinishedAt = &finished
+	}
+
+	if t.PortMapping != nil {
+		copy.PortMapping = make([]types.PortMapping, len(t.PortMapping))
+		for i, pm := range t.PortMapping {
+			copy.PortMapping[i] = pm
+		}
+	}
+
+	if t.Labels != nil {
+		copy.Labels = make(map[string]string, len(t.Labels))
+		for k, v := range t.Labels {
+			copy.Labels[k] = v
+		}
+	}
+
+	if t.ServiceConfig != nil {
+		configCopy := *t.ServiceConfig
+		copy.ServiceConfig = &configCopy
+	}
+
+	return copy
 }
 
 // Is task runnung

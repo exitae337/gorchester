@@ -14,7 +14,7 @@ const (
 
 // PortMapping -> Port host, Container Port, Protocol
 type PortMapping struct {
-	HostPort      int      `yaml:"host_port" json:"host_port"`           // Host port
+	HostPort      int      `yaml:"host_port" json:"host_port"`           // Host port (server/computer)
 	ContainerPort int      `yaml:"container_port" json:"conatiner_port"` // Container port
 	Protocol      Protocol `yaml:"protocol" json:"protocol"`             // TCP / UDP
 }
