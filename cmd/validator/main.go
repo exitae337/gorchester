@@ -7,6 +7,7 @@ import (
 	"log"
 
 	"github.com/exitae337/gorchester/internal/config"
+	"github.com/exitae337/gorchester/internal/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -33,7 +34,7 @@ func main() {
 	}
 }
 
-func printConfigDetails(cfg *config.OchestratorConfig, format string) {
+func printConfigDetails(cfg *types.OchestratorConfig, format string) {
 	switch format {
 	case "json":
 		printConfigJSON(cfg)
@@ -44,7 +45,7 @@ func printConfigDetails(cfg *config.OchestratorConfig, format string) {
 	}
 }
 
-func printConfigText(cfg *config.OchestratorConfig) {
+func printConfigText(cfg *types.OchestratorConfig) {
 	fmt.Println("\n📋 Configuration Details:")
 	fmt.Printf("Environment: %s\n", cfg.Env)
 	fmt.Printf("Listen Address: %s\n", cfg.ListenAddr)
@@ -111,7 +112,7 @@ func printConfigText(cfg *config.OchestratorConfig) {
 	}
 }
 
-func printConfigJSON(cfg *config.OchestratorConfig) {
+func printConfigJSON(cfg *types.OchestratorConfig) {
 	jsonData, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		fmt.Printf("Error generating JSON: %v\n", err)
@@ -120,7 +121,7 @@ func printConfigJSON(cfg *config.OchestratorConfig) {
 	fmt.Println(string(jsonData))
 }
 
-func printConfigYAML(cfg *config.OchestratorConfig) {
+func printConfigYAML(cfg *types.OchestratorConfig) {
 	yamlData, err := yaml.Marshal(cfg)
 	if err != nil {
 		fmt.Printf("Error generating YAML: %v\n", err)

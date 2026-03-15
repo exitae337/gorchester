@@ -276,13 +276,13 @@ func (mem *MemoryTaskStore) GetByContainerID(ctx context.Context, containerID st
 }
 
 // TaskStats -> task Stats
-func (mem *MemoryTaskStore) TaskStats(ctx context.Context, id string) (*TaskStats, error) {
+func (mem *MemoryTaskStore) TaskStats(ctx context.Context, id string) (*core.TaskStats, error) {
 	task, err := mem.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	stats := &TaskStats{
+	stats := &core.TaskStats{
 		RestartCount:  task.RestartCount,
 		CurrentStatus: task.Status,
 		CPUUsage:      float64(task.CPUUsage),

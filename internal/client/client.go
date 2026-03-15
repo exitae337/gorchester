@@ -4,13 +4,13 @@ import (
 	"context"
 	"time"
 
-	"github.com/exitae337/gorchester/internal/config"
+	"github.com/exitae337/gorchester/internal/types"
 )
 
 // Interafce for Docker Client -> contract
 type ContainerManager interface {
 	// Create container
-	CreateContainer(ctx context.Context, service *config.ServiceConfig, taskID string) (string, error)
+	CreateContainer(ctx context.Context, service *types.ServiceConfig, taskID string) (string, error)
 	// Start container by ID
 	StartContainer(ctx context.Context, containerID string) error
 	// Stop container by ID

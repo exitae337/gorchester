@@ -1,6 +1,9 @@
 package types
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // Types, that used in orchestration process: config structs and some node / service data
 
@@ -48,28 +51,6 @@ type HealthCheck struct {
 	StartPeriod time.Duration `yaml:"start_period" json:"start_period"`
 }
 
-// Node -> node type
-type Node struct {
-	ID       string            `json:"id"`       // Node ID
-	Address  string            `json:"address"`  // Node address
-	Capacity NodeCapacity      `json:"capacity"` // Capacity (CPUs and memory)
-	Usage    NodeUsage         `json:"usage"`    // Usage (current usage)
-	Labels   map[string]string `json:"labels"`   // Headers
-	Status   string            `json:"status"`   // "ready", "draining", "down"
-}
-
-// NodeCapacity
-type NodeCapacity struct {
-	CPU    int64 `json:"cpu"`    // in CPU millicores
-	Memory int64 `json:"memory"` // in bytes
-}
-
-// NodeUsage
-type NodeUsage struct {
-	CPU    float64 `json:"cpu_usage"`
-	Memory int64   `json:"memory_usage"`
-}
-
 // Event -> событие
 type Event struct {
 	ID        string                 `json:"id"`             // ID события
@@ -77,4 +58,87 @@ type Event struct {
 	Message   string                 `json:"message"`        // Сообщение
 	Timestamp time.Time              `json:"timestamp"`      // Время собятия
 	Data      map[string]interface{} `json:"data,omitempty"` // Дата события
+}
+
+// <---- NODE TYPES ---->
+
+// NodeStatus представляет состояние узла
+type NodeStatus string
+
+const (
+	// NodeStatusReady - ready for Tasks
+	NodeStatusReady NodeStatus = "ready"
+	// NodeStatusNotReady - not ready for Tasks ()connection problems
+	NodeStatusNotReady NodeStatus = "not_ready"
+	// NodeStatusDraining - down
+	NodeStatusDraining NodeStatus = "draining"
+)
+
+// NodeResources struct -> Resources
+type NodeResources struct {
+	CPU    int64 // in millicores
+	Memory int64 // in bytes
+}
+
+// Node struct -> node in cluster
+type Node struct {
+	ID        string            `json:"id"`
+	Hostname  string            `json:"hostname"`
+	IP        string            `json:"ip"`
+	Status    NodeStatus        `json:"status"`
+	Labels    map[string]string `json:"labels"`
+	Resources *NodeResources    `json:"resources"`
+
+	// resiurces -> dynamic changes
+	UsedCPU    int64 `json:"used_cpu"`
+	UsedMemory int64 `json:"used_memory"`
+
+	// Count of tasks
+	TaskCount int `json:"task_count"`
+
+	// Heartbeat -> last
+	LastSeen time.Time `json:"last_seen"`
+
+	Mu sync.RWMutex `json:"-"`
+}
+
+// NodeStats представляет статистику по узлу
+type NodeStats struct {
+	NodeID       string
+	TotalTasks   int
+	RunningTasks int
+	CPUUsage     float64 // процент использования
+	MemoryUsage  float64 // процент использования
+	Uptime       time.Duration
+}
+
+// ORCHESTRATOR
+
+// OchestratorConfig -> main orchestrator configuration
+type OchestratorConfig struct {
+	Env         string          `yaml:"env" env-default:"local"`                    // Orchestrator enviroment
+	ListenAddr  string          `yaml:"listen_addr" env-default:"localhost:8080"`   // To orchestrator API
+	DataDir     string          `yaml:"data_dir" env-default:"./orchestrator-data"` // Local data of Orchestrator
+	ClusterName string          `yaml:"cluster_name" env-default:"default-name"`    // Name of the Cluster
+	Services    []ServiceConfig `yaml:"services"`                                   // Services for orchestration
+}
+
+// TODO: comments
+type ServiceConfig struct {
+	ServiceName   string        `yaml:"service_name" json:"service_name"`
+	Image         string        `yaml:"image" json:"image"`
+	Replicas      int           `yaml:"replicas" json:"replicas"`
+	Ports         []PortMapping `yaml:"ports" json:"ports"`
+	Env           []string      `yaml:"env" json:"env"`
+	Command       []string      `yaml:"command" json:"command"`
+	Volumes       []string      `yaml:"volumes" json:"volumes"`
+	Network       string        `yaml:"network" json:"network"`
+	NetworkMode   string        `yaml:"network_mode" json:"network_mode"`
+	DNS           []string      `yaml:"dns" json:"dns"`
+	ExtraHosts    []string      `yaml:"extra_hosts" json:"extra_hosts"`
+	RestartPolicy string        `yaml:"restart_policy" json:"restart_policy"`
+
+	Resources   ResourceRequirements `yaml:"resources"`    // Resources for service
+	ScalePolicy ScalePolicy          `yaml:"scale_policy"` // Scaling policy
+	HealthCheck HealthCheck          `yaml:"health_check"` // Health checking
 }

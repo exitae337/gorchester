@@ -21,37 +21,8 @@ const (
 	MinMemoryBytes = 16 * 1024 * 1024 // 16 MiB
 )
 
-// OchestratorConfig -> main orchestrator configuration
-type OchestratorConfig struct {
-	Env         string          `yaml:"env" env-default:"local"`                    // Orchestrator enviroment
-	ListenAddr  string          `yaml:"listen_addr" env-default:"localhost:8080"`   // To orchestrator API
-	DataDir     string          `yaml:"data_dir" env-default:"./orchestrator-data"` // Local data of Orchestrator
-	ClusterName string          `yaml:"cluster_name" env-default:"default-name"`    // Name of the Cluster
-	Services    []ServiceConfig `yaml:"services"`                                   // Services for orchestration
-}
-
-// TODO: comments
-type ServiceConfig struct {
-	ServiceName   string              `yaml:"service_name" json:"service_name"`
-	Image         string              `yaml:"image" json:"image"`
-	Replicas      int                 `yaml:"replicas" json:"replicas"`
-	Ports         []types.PortMapping `yaml:"ports" json:"ports"`
-	Env           []string            `yaml:"env" json:"env"`
-	Command       []string            `yaml:"command" json:"command"`
-	Volumes       []string            `yaml:"volumes" json:"volumes"`
-	Network       string              `yaml:"network" json:"network"`
-	NetworkMode   string              `yaml:"network_mode" json:"network_mode"`
-	DNS           []string            `yaml:"dns" json:"dns"`
-	ExtraHosts    []string            `yaml:"extra_hosts" json:"extra_hosts"`
-	RestartPolicy string              `yaml:"restart_policy" json:"restart_policy"`
-
-	Resources   types.ResourceRequirements `yaml:"resources"`    // Resources for service
-	ScalePolicy types.ScalePolicy          `yaml:"scale_policy"` // Scaling policy
-	HealthCheck types.HealthCheck          `yaml:"health_check"` // Health checking
-}
-
 // Load orchestrator configuration -> Main Loading configuration process
-func MustLoad() *OchestratorConfig {
+func MustLoad() *types.OchestratorConfig {
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
 		configPath = "config/config.yaml"
@@ -61,7 +32,7 @@ func MustLoad() *OchestratorConfig {
 		log.Fatalf("config file for orchestrator does not exists: %s", configPath)
 	}
 
-	var config OchestratorConfig
+	var config types.OchestratorConfig
 
 	err := cleanenv.ReadConfig(configPath, &config)
 	if err != nil {
@@ -78,7 +49,7 @@ func MustLoad() *OchestratorConfig {
 }
 
 // Configuration validation -> config.yaml into OrchestratorConfig struct with cleanenv module
-func validateConfig(config *OchestratorConfig) error {
+func validateConfig(config *types.OchestratorConfig) error {
 	// Check service and image names
 	var errorString strings.Builder
 	for i, service := range config.Services {
@@ -147,12 +118,12 @@ func validateConfig(config *OchestratorConfig) error {
 }
 
 // LoadConfig -> for validation process
-func LoadConfig(path string) (*OchestratorConfig, error) {
+func LoadConfig(path string) (*types.OchestratorConfig, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, fmt.Errorf("config file does not exist: %s", path)
 	}
 
-	var config OchestratorConfig
+	var config types.OchestratorConfig
 	if err := cleanenv.ReadConfig(path, &config); err != nil {
 		return nil, fmt.Errorf("failed to read config: %w", err)
 	}
@@ -167,7 +138,7 @@ func LoadConfig(path string) (*OchestratorConfig, error) {
 }
 
 // Apply defaults funcs
-func applyDefaults(config *OchestratorConfig) {
+func applyDefaults(config *types.OchestratorConfig) {
 	for i := range config.Services {
 		applyScalePolicyDefaults(&config.Services[i].ScalePolicy)
 		applyHealthCheckDefaults(&config.Services[i].HealthCheck)

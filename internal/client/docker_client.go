@@ -14,7 +14,6 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
-	"github.com/exitae337/gorchester/internal/config"
 	"github.com/exitae337/gorchester/internal/types"
 )
 
@@ -56,7 +55,7 @@ func NewDockerClient() (*DockerClient, error) {
 }
 
 // Create Container: Create and start container by configuration
-func (dc *DockerClient) CreateContainer(ctx context.Context, service *config.ServiceConfig, taskID string, logger *slog.Logger) (string, error) {
+func (dc *DockerClient) CreateContainer(ctx context.Context, service *types.ServiceConfig, taskID string, logger *slog.Logger) (string, error) {
 	const op = "client.CreateContainer"
 
 	ctx, cancel := context.WithTimeout(ctx, dc.timeout)
