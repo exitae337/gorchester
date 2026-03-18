@@ -32,7 +32,7 @@ type Scheduler interface {
 	UpdateNodeStatus(ctx context.Context, nodeID string, status types.NodeStatus) error
 
 	// Release Node Resources
-	ReleaseNodeResources(ctx context.Context, nodeID string)
+	ReleaseNodeResources(ctx context.Context, nodeID string, task *types.Task)
 }
 
 // Store interface
@@ -78,6 +78,8 @@ type TaskStore interface {
 type OrchestratorSettings struct {
 	ReconcileInterval   time.Duration // reconcile interval
 	HealthCheckInterval time.Duration // health check interval
+	CleanUpIntarval     time.Duration // clean up interval
+	TaskTTL             time.Duration // how long stopped Tasks will be saved (TTL)
 }
 
 // DefaultOrchestrator Settings
@@ -85,6 +87,8 @@ func DefaultOrchestratorSettings() *OrchestratorSettings {
 	return &OrchestratorSettings{
 		ReconcileInterval:   30 * time.Second,
 		HealthCheckInterval: 15 * time.Second,
+		CleanUpIntarval:     30 * time.Minute,
+		TaskTTL:             24 * time.Hour,
 	}
 }
 
@@ -139,10 +143,54 @@ func (o *Orchestrator) Start() error {
 	o.isRunning = true
 
 	// Background cycles
-	o.wg.Add(2)
+	o.wg.Add(3)
+	go o.healthCheckLoop()
+	go o.reconcileLoop()
+	// cleanupLoop()
 
-	// TODO -> Cycles !!!
+	// Init services from config
+	if err := o.initServices(); err != nil {
+		o.logger.Error("failed to init services from config", err)
+		o.cancel()
+		o.wg.Wait()
+		o.isRunning = false
+		return fmt.Errorf("services init failed: %w", err)
+	}
 
+	o.logger.Info("orchestartor started successfully",
+		"cluster", o.appConfig.ClusterName,
+		"services", len(o.appConfig.Services))
+
+	return nil
+}
+
+// Stop orchestartor -> Error returning? !!!
+func (o *Orchestrator) Stop() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if !o.isRunning {
+		return nil
+	}
+
+	o.logger.Info("stopping orchestartor...")
+	o.cancel()
+
+	// Waiting for stopping by timeout
+	done := make(chan struct{})
+	go func() {
+		o.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		o.logger.Info("orchestrator stopped gracefully!")
+	case <-time.After(30 * time.Second):
+		o.logger.Warn("orchestrtor stopping time out")
+	}
+
+	o.isRunning = false
 	return nil
 }
 
@@ -168,7 +216,7 @@ func (o *Orchestrator) initServices() error {
 					"service", svc.ServiceName,
 					"error", err)
 			}
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond) // Pause for Docker API
 		}
 	}
 	return nil
@@ -217,6 +265,7 @@ func (o *Orchestrator) createServiceTask(ctx context.Context, service *types.Ser
 
 	// Save in Store
 	if err := o.taskStore.Create(ctx, task); err != nil {
+		o.scheduler.ReleaseNodeResources(ctx, nodeID, task)
 		return fmt.Errorf("failed to save task: %w", err)
 	}
 
@@ -234,7 +283,7 @@ func (o *Orchestrator) createServiceTask(ctx context.Context, service *types.Ser
 // executeTask do Task -> make docker container
 func (o *Orchestrator) executeTask(task *types.Task) {
 	// Используем отдельный контекст для этой операции, но привязываем к общему o.ctx (при остановке оркестратора, все
-	// опреации дожны прерываться)
+	// опреации дожны прерываться) -> ctx.cancel() -> stopping all containers
 	ctx, cancel := context.WithCancel(o.ctx)
 	defer cancel()
 
@@ -246,6 +295,11 @@ func (o *Orchestrator) executeTask(task *types.Task) {
 	taskLogger.Info("executing task")
 
 	// 1. Update status on Starting
+	task.Status = types.TaskStatusStarting
+	if err := o.taskStore.Update(ctx, task); err != nil {
+		taskLogger.Error("failed to update task status to starting", "error", err)
+		// Not critical
+	}
 
 	// 2. Make Container by DockerClient
 	containerID, err := o.dockerClient.CreateContainer(
@@ -258,21 +312,31 @@ func (o *Orchestrator) executeTask(task *types.Task) {
 	if err != nil {
 		taskLogger.Error("failed to create/start container", "error", err)
 		// if error -> status failed
-		task.UpdateTask(types.TaskStatusFailed)
+		task.Status = types.TaskStatusFailed
 		task.Error = err.Error()
-		if updateErr := o.taskStore.Update(ctx, task); updateErr != nil {
-			taskLogger.Error("failed to update task status to failed", "error", updateErr)
+		now := time.Now()
+		task.FinishedAt = &now
+
+		if updaterErr := o.taskStore.Update(ctx, task); updaterErr != nil {
+			taskLogger.Error("failed to update task status to failed", "error", updaterErr)
 		}
+
+		o.scheduler.ReleaseNodeResources(ctx, task.NodeID, task)
 		return
 	}
 
 	// 3. ALL OK -> Update Task
 	task.ContainerID = containerID
-	task.UpdateTask(types.TaskStatusRunning) // StartedAt updating
+	task.Status = types.TaskStatusRunning
+	now := time.Now()
+	task.StartedAt = &now
 
 	if err := o.taskStore.Update(ctx, task); err != nil {
 		taskLogger.Error("failed to update task status to running", "error", err)
-		// PROBLEM !!! -> We try to update but can't do it!!!
+		// CRITICAL -> try to Stop container
+		o.dockerClient.StopContainer(ctx, containerID)
+		o.dockerClient.RemoveContainer(ctx, containerID)
+		o.scheduler.ReleaseNodeResources(ctx, task.NodeID, task)
 		return
 	}
 
@@ -349,6 +413,11 @@ func (o *Orchestrator) reconcile() {
 				// restart_counter++
 				o.taskStore.IncrementRestartCounter(ctx, task.ID)
 
+				// Release resources -> old Task
+				if task.NodeID != "" {
+					o.scheduler.ReleaseNodeResources(ctx, task.NodeID, task)
+				}
+
 				// Make new Task (old Tast to delete) OR make new Replica TODO
 				if err := o.createServiceTask(ctx, &svc); err != nil {
 					o.logger.Error("failed to create replacement task", "error", err)
@@ -380,7 +449,7 @@ func (o *Orchestrator) reconcile() {
 					o.logger.Error("failed to scale up", "error", err)
 					break
 				}
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(100 * time.Millisecond) // for Docker API :)
 			}
 		} else if currentReplicas > desiredReplicas && svc.ScalePolicy.MaxReplicas > 0 && currentReplicas > svc.ScalePolicy.MaxReplicas {
 			// If current > max_replicas -> low it down
@@ -391,10 +460,54 @@ func (o *Orchestrator) reconcile() {
 				"max", svc.ScalePolicy.MaxReplicas,
 				"excess", excess)
 			// TODO: реализовать остановку лишних задач
+			o.scaleDown(ctx, &svc, tasks, excess)
 		}
 	}
 
 	o.logger.Debug("reconciliation completed")
+}
+
+// scaleDown -> stops excees tasks
+func (o *Orchestrator) scaleDown(ctx context.Context, svc *types.ServiceConfig, tasks []*types.Task, excess int) {
+	for i := 0; i < excess && i < len(tasks); i++ {
+		task := tasks[len(tasks)-1-i]
+		if task.Status != types.TaskStatusRunning {
+			continue
+		}
+
+		o.logger.Info("stopping task for scale down",
+			"task_id", task.ID,
+			"service", task.ServiceName)
+
+		// Update Desired state
+		task.DesiredState = types.TaskStatusStopped
+		o.taskStore.Update(ctx, task)
+
+		// Stop and Delete container
+		if task.ContainerID != "" {
+			if err := o.dockerClient.StopContainer(ctx, task.ContainerID); err != nil {
+				o.logger.Warn("failed to stop container during scale down",
+					"task_id", task.ID,
+					"error", err)
+			}
+			if err := o.dockerClient.RemoveContainer(ctx, task.ContainerID); err != nil {
+				o.logger.Warn("failed to remove container during scale down",
+					"task_id", task.ID,
+					"error", err)
+			}
+		}
+
+		// Release resources
+		if task.NodeID != "" {
+			o.scheduler.ReleaseNodeResources(ctx, task.NodeID, task)
+		}
+
+		// Task -> change status to stopped
+		task.Status = types.TaskStatusStopped
+		now := time.Now()
+		task.FinishedAt = &now
+		o.taskStore.Update(ctx, task)
+	}
 }
 
 // healthCheckLoop -> Health check loop
@@ -429,27 +542,90 @@ func (o *Orchestrator) checkHealth() {
 	}
 
 	for _, task := range tasks {
-		// Пропускаем задачи без health check
 		if task.ServiceConfig == nil {
 			continue
 		}
+		healthy := true
 
-		// TODO: Реализовать реальную проверку здоровья.
-		// Для этого нужно расширить DockerClient методом вроде:
-		// InspectContainer или Exec, чтобы проверить процесс внутри.
-		// Пока просто считаем все контейнеры здоровыми.
-		_ = task.ServiceConfig.HealthCheck // Заглушка, чтобы избежать предупреждения
+		if !healthy {
+			o.logger.Warn("container unhealthy",
+				"task_id", task.ID,
+				"service", task.ServiceName)
 
-		// Пример того, как это будет выглядеть в будущем:
-		// healthy, err := o.dockerClient.CheckContainerHealth(ctx, task.ContainerID, task.ServiceConfig.HealthCheck)
-		// if err != nil {
-		//     o.logger.Error("health check failed", "task_id", task.ID, "error", err)
-		//     task.UpdateTask(TaskStatusFailed)
-		//     o.taskStore.Update(ctx, task)
-		// }
+			// Task status = failed
+			task.Status = types.TaskStatusFailed
+			now := time.Now()
+			task.FinishedAt = &now
+			o.taskStore.Update(ctx, task)
+
+			// Release resources
+			if task.NodeID != "" {
+				o.scheduler.ReleaseNodeResources(ctx, task.NodeID, task)
+			}
+		}
 	}
+	// TODO -> By Docker Client Method (internal/client)
+	// healthy, err := o.dockerClient.CheckContainerHealth(ctx, task.ContainerID, task.ServiceConfig.HealthCheck)
+	// if err != nil {
+	//     o.logger.Error("health check failed", "task_id", task.ID, "error", err)
+	//     task.UpdateTask(TaskStatusFailed)
+	//     o.taskStore.Update(ctx, task)
+	// }
 
 	o.logger.Debug("health check completed", "checked_count", len(tasks))
+}
+
+// cleanUpLoop
+func (o *Orchestrator) cleanUpLoop() {
+	defer o.wg.Done()
+	ticker := time.NewTicker(o.settings.CleanUpIntarval)
+	defer ticker.Stop()
+
+	o.logger.Info("cleaup loop started", "interval", o.settings.CleanUpIntarval)
+
+	for {
+		select {
+		case <-o.ctx.Done():
+			o.logger.Info("cleanup ended successfully")
+			return
+		case <-ticker.C:
+			o.cleanup()
+		}
+	}
+}
+
+// cleanup
+func (o *Orchestrator) cleanup() {
+	ctx := context.Background()
+
+	// All terminated tasks
+	terminatedTasks, err := o.taskStore.ListByStatus(ctx, types.TaskStatusDead)
+	if err != nil {
+		o.logger.Error("failed to get dead tasks from taskStore", "error", err)
+		return
+	}
+
+	// Delete tasks older than TaskTTL
+	cutoff := time.Now().Add(-o.settings.TaskTTL)
+	for _, task := range terminatedTasks {
+		if task.FinishedAt != nil && task.FinishedAt.Before(cutoff) {
+			o.logger.Info("cleaning up old task",
+				"task_id", task.ID,
+				"finished_at", task.FinishedAt)
+
+			// release old resources (if not done yet)
+			if task.NodeID != "" {
+				o.scheduler.ReleaseNodeResources(ctx, task.NodeID, task)
+			}
+
+			if err := o.taskStore.Delete(ctx, task.ID); err != nil {
+				o.logger.Error("failed to delete old task",
+					"task_id", task.ID,
+					"error", err)
+			}
+		}
+	}
+
 }
 
 // GetTask -> Get Task by ID (API Method)
@@ -484,6 +660,10 @@ func (o *Orchestrator) DeleteTask(ctx context.Context, id string) error {
 				"container", task.ContainerID[:12],
 				"error", err)
 		}
+	}
+
+	if task.NodeID != "" {
+		o.scheduler.ReleaseNodeResources(ctx, task.NodeID, task)
 	}
 
 	return o.taskStore.Delete(ctx, id)

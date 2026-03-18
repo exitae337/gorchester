@@ -14,11 +14,12 @@ type TaskStatus string
 
 // Statuses
 const (
-	TaskStatusPending TaskStatus = "pending" // Container created, but not started
-	TaskStatusRunning TaskStatus = "running" // Container running
-	TaskStatusStopped TaskStatus = "stopped" // Container stopped
-	TaskStatusFailed  TaskStatus = "failed"  // Error in container running
-	TaskStatusDead    TaskStatus = "dead"    // Container ended
+	TaskStatusStarting TaskStatus = "starting" // Starting Container
+	TaskStatusPending  TaskStatus = "pending"  // Container created, but not started
+	TaskStatusRunning  TaskStatus = "running"  // Container running
+	TaskStatusStopped  TaskStatus = "stopped"  // Container stopped
+	TaskStatusFailed   TaskStatus = "failed"   // Error in container running
+	TaskStatusDead     TaskStatus = "dead"     // Container ended
 )
 
 // Task structure
