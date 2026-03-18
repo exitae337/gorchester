@@ -10,11 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/exitae337/gorchester/internal/core"
 	"github.com/exitae337/gorchester/internal/types"
 )
 
-// Strategy определяет стратегию планирования
+// Strategy -> Planning stategy
 type Strategy string
 
 const (
@@ -37,8 +36,8 @@ const (
 	StrategyLeastResource Strategy = "least_resource"
 )
 
-// Config scheduler config
-type Config struct {
+// Scheduler config -> Local structure for Scheduler
+type SchedulerConfig struct {
 	Strategy           Strategy      // strategy
 	HeartbeatTimeout   time.Duration // timeout of heartbeat
 	CleanupInterval    time.Duration // delete (cleanup)
@@ -46,8 +45,8 @@ type Config struct {
 }
 
 // DefaultConfig -> default
-func DefaultConfig() *Config {
-	return &Config{
+func DefaultConfig() *SchedulerConfig {
+	return &SchedulerConfig{
 		Strategy:           StrategySpread,
 		HeartbeatTimeout:   30 * time.Second,
 		CleanupInterval:    1 * time.Minute,
@@ -57,7 +56,7 @@ func DefaultConfig() *Config {
 
 // SimpleScheduler with different strategy
 type SimpleScheduler struct {
-	config *Config
+	config *SchedulerConfig
 	nodes  map[string]*types.Node
 	mu     sync.RWMutex
 
@@ -71,7 +70,7 @@ type SimpleScheduler struct {
 }
 
 // NEW() -> constructor for scheduler()
-func New(config *Config, logger *slog.Logger) *SimpleScheduler {
+func New(config *SchedulerConfig, logger *slog.Logger) *SimpleScheduler {
 	if config == nil {
 		config = DefaultConfig()
 	}
@@ -106,7 +105,7 @@ func (s *SimpleScheduler) Stop() {
 	s.wg.Wait()
 }
 
-// Test nodes for development -> TODO !!!
+// Test nodes for development -> TODO !!! -> FOR TESTING
 func (s *SimpleScheduler) addTestNodes() {
 	testNodes := []*types.Node{
 		{
@@ -198,7 +197,7 @@ func (s *SimpleScheduler) cleanupInactiveNodes() {
 }
 
 // SelectNode -> choose Node by chosen strategy
-func (s *SimpleScheduler) SelectNode(ctx context.Context, task *core.Task, nodes []*types.Node) (string, error) {
+func (s *SimpleScheduler) SelectNode(ctx context.Context, task *types.Task, nodes []*types.Node) (string, error) {
 	if len(nodes) == 0 {
 		return "", errors.New("no nodes available")
 	}
@@ -266,7 +265,7 @@ func (s *SimpleScheduler) filterReadyNodes(nodes []*types.Node) []*types.Node {
 }
 
 // filterFeasibleNodes -> only Nodes with resources
-func (s *SimpleScheduler) filterFeasibleNodes(nodes []*types.Node, task *core.Task) []*types.Node {
+func (s *SimpleScheduler) filterFeasibleNodes(nodes []*types.Node, task *types.Task) []*types.Node {
 	reqCPU := task.ServiceConfig.Resources.CPUMilliCores
 	reqMem := task.ServiceConfig.Resources.MemoryBytes
 
@@ -321,7 +320,7 @@ func (s *SimpleScheduler) selectRoundRobin(nodes []*types.Node, serviceName stri
 }
 
 // selectBinpack -> maximum load Node (чтобы максимально уплотнить задачи)
-func (s *SimpleScheduler) selectBinpack(nodes []*types.Node, task *core.Task) (*types.Node, error) {
+func (s *SimpleScheduler) selectBinpack(nodes []*types.Node, task *types.Task) (*types.Node, error) {
 	if len(nodes) == 0 {
 		return nil, errors.New("no nodes to select from")
 	}
@@ -362,11 +361,11 @@ func (s *SimpleScheduler) selectSpread(nodes []*types.Node) (*types.Node, error)
 
 // selectLeastTasks -> min Task count
 func (s *SimpleScheduler) selectLeastTasks(nodes []*types.Node) (*types.Node, error) {
-	return s.selectSpread(nodes) // та же логика
+	return s.selectSpread(nodes) // same logic
 }
 
 // selectLeastResource -> choose max resource Node
-func (s *SimpleScheduler) selectLeastResource(nodes []*types.Node, task *core.Task) (*types.Node, error) {
+func (s *SimpleScheduler) selectLeastResource(nodes []*types.Node, task *types.Task) (*types.Node, error) {
 	if len(nodes) == 0 {
 		return nil, errors.New("no nodes to select from")
 	}
@@ -374,7 +373,7 @@ func (s *SimpleScheduler) selectLeastResource(nodes []*types.Node, task *core.Ta
 	reqCPU := task.ServiceConfig.Resources.CPUMilliCores
 	reqMem := task.ServiceConfig.Resources.MemoryBytes
 
-	// Sort  by max Resource
+	// Sort by max Resource
 	sort.Slice(nodes, func(i, j int) bool {
 		iCPUFree := nodes[i].Resources.CPU - nodes[i].UsedCPU
 		iMemFree := nodes[i].Resources.Memory - nodes[i].UsedMemory
@@ -392,7 +391,7 @@ func (s *SimpleScheduler) selectLeastResource(nodes []*types.Node, task *core.Ta
 }
 
 // updateNodeResources -> update resources in usage
-func (s *SimpleScheduler) updateNodeResources(nodeID string, task *core.Task) {
+func (s *SimpleScheduler) updateNodeResources(nodeID string, task *types.Task) {
 	s.mu.RLock()
 	node, exists := s.nodes[nodeID]
 	s.mu.RUnlock()

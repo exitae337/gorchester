@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/exitae337/gorchester/internal/core"
+	"github.com/exitae337/gorchester/internal/types"
 )
 
 // TaskStore interface realization
@@ -14,27 +14,27 @@ import (
 // In-memory struct -> store for Tasks
 type MemoryTaskStore struct {
 	mu    sync.RWMutex
-	tasks map[string]*core.Task
+	tasks map[string]*types.Task
 	// Fast search
-	byContainerID map[string]string                   // containerID -> taskID
-	byNodeID      map[string]map[string]bool          // nodeID -> set of TaskID
-	byServiceName map[string]map[string]bool          // serviceName -> set of TaskID
-	byStatus      map[core.TaskStatus]map[string]bool // status -> set of TaskID
+	byContainerID map[string]string                    // containerID -> taskID
+	byNodeID      map[string]map[string]bool           // nodeID -> set of TaskID
+	byServiceName map[string]map[string]bool           // serviceName -> set of TaskID
+	byStatus      map[types.TaskStatus]map[string]bool // status -> set of TaskID
 }
 
 // New MemoryTaskStore object -> New() -> Constructor
 func New() *MemoryTaskStore {
 	return &MemoryTaskStore{
-		tasks:         make(map[string]*core.Task),
+		tasks:         make(map[string]*types.Task),
 		byContainerID: make(map[string]string),
 		byNodeID:      make(map[string]map[string]bool),
 		byServiceName: make(map[string]map[string]bool),
-		byStatus:      make(map[core.TaskStatus]map[string]bool),
+		byStatus:      make(map[types.TaskStatus]map[string]bool),
 	}
 }
 
 // Create -> save New Task in store
-func (mem *MemoryTaskStore) Create(ctx context.Context, task *core.Task) error {
+func (mem *MemoryTaskStore) Create(ctx context.Context, task *types.Task) error {
 	if task == nil {
 		return fmt.Errorf("task can't be nil")
 	}
@@ -68,7 +68,7 @@ func (mem *MemoryTaskStore) Create(ctx context.Context, task *core.Task) error {
 }
 
 // Get -> get task By ID
-func (mem *MemoryTaskStore) Get(ctx context.Context, id string) (*core.Task, error) {
+func (mem *MemoryTaskStore) Get(ctx context.Context, id string) (*types.Task, error) {
 	if id == "" {
 		return nil, fmt.Errorf("task ID can't be nil")
 	}
@@ -85,7 +85,7 @@ func (mem *MemoryTaskStore) Get(ctx context.Context, id string) (*core.Task, err
 }
 
 // Update -> update current Task
-func (mem *MemoryTaskStore) Update(ctx context.Context, task *core.Task) error {
+func (mem *MemoryTaskStore) Update(ctx context.Context, task *types.Task) error {
 	if task == nil {
 		return fmt.Errorf("task can't be nil for updating")
 	}
@@ -138,11 +138,11 @@ func (mem *MemoryTaskStore) Delete(ctx context.Context, id string) error {
 }
 
 // List all tasks
-func (mem *MemoryTaskStore) List(ctx context.Context) ([]*core.Task, error) {
+func (mem *MemoryTaskStore) List(ctx context.Context) ([]*types.Task, error) {
 	mem.mu.Lock()
 	defer mem.mu.Unlock()
 
-	tasks := make([]*core.Task, 0, len(mem.tasks))
+	tasks := make([]*types.Task, 0, len(mem.tasks))
 	for _, task := range mem.tasks {
 		tasks = append(tasks, task.DeepCopy())
 	}
@@ -151,7 +151,7 @@ func (mem *MemoryTaskStore) List(ctx context.Context) ([]*core.Task, error) {
 }
 
 // ListByService -> all Tasks by Service
-func (mem *MemoryTaskStore) ListByService(ctx context.Context, serviceName string) ([]*core.Task, error) {
+func (mem *MemoryTaskStore) ListByService(ctx context.Context, serviceName string) ([]*types.Task, error) {
 	if serviceName == "" {
 		return nil, fmt.Errorf("serviceName can't be nil")
 	}
@@ -161,10 +161,10 @@ func (mem *MemoryTaskStore) ListByService(ctx context.Context, serviceName strin
 
 	tasksID, exists := mem.byServiceName[serviceName]
 	if !exists {
-		return []*core.Task{}, nil
+		return []*types.Task{}, nil
 	}
 
-	tasks := make([]*core.Task, 0, len(tasksID))
+	tasks := make([]*types.Task, 0, len(tasksID))
 	for taskID := range tasksID {
 		if task, exists := mem.tasks[taskID]; exists {
 			tasks = append(tasks, task.DeepCopy())
@@ -175,16 +175,16 @@ func (mem *MemoryTaskStore) ListByService(ctx context.Context, serviceName strin
 }
 
 // ListByStatus -> return all Tasks with 'status'
-func (mem *MemoryTaskStore) ListByStatus(ctx context.Context, status core.TaskStatus) ([]*core.Task, error) {
+func (mem *MemoryTaskStore) ListByStatus(ctx context.Context, status types.TaskStatus) ([]*types.Task, error) {
 	mem.mu.RLock()
 	defer mem.mu.RUnlock()
 
 	taskIDs, exists := mem.byStatus[status]
 	if !exists {
-		return []*core.Task{}, nil
+		return []*types.Task{}, nil
 	}
 
-	tasks := make([]*core.Task, 0, len(taskIDs))
+	tasks := make([]*types.Task, 0, len(taskIDs))
 	for taskID := range taskIDs {
 		if task, exists := mem.tasks[taskID]; exists {
 			tasks = append(tasks, task.DeepCopy())
@@ -194,7 +194,7 @@ func (mem *MemoryTaskStore) ListByStatus(ctx context.Context, status core.TaskSt
 }
 
 // ListByNodeID -> all tasks on 'nodeID'
-func (mem *MemoryTaskStore) ListByNodeID(ctx context.Context, nodeID string) ([]*core.Task, error) {
+func (mem *MemoryTaskStore) ListByNodeID(ctx context.Context, nodeID string) ([]*types.Task, error) {
 	if nodeID == "" {
 		return nil, fmt.Errorf("node ID cannot be empty")
 	}
@@ -204,10 +204,10 @@ func (mem *MemoryTaskStore) ListByNodeID(ctx context.Context, nodeID string) ([]
 
 	taskIDs, exists := mem.byNodeID[nodeID]
 	if !exists {
-		return []*core.Task{}, nil
+		return []*types.Task{}, nil
 	}
 
-	tasks := make([]*core.Task, 0, len(taskIDs))
+	tasks := make([]*types.Task, 0, len(taskIDs))
 	for taskID := range taskIDs {
 		if task, exists := mem.tasks[taskID]; exists {
 			tasks = append(tasks, task.DeepCopy())
@@ -240,7 +240,7 @@ func (mem *MemoryTaskStore) CountByService(ctx context.Context, serviceName stri
 }
 
 // CountByStatus -> count by task status
-func (mem *MemoryTaskStore) CountByStatus(ctx context.Context, status core.TaskStatus) (int, error) {
+func (mem *MemoryTaskStore) CountByStatus(ctx context.Context, status types.TaskStatus) (int, error) {
 	mem.mu.RLock()
 	defer mem.mu.RUnlock()
 
@@ -252,7 +252,7 @@ func (mem *MemoryTaskStore) CountByStatus(ctx context.Context, status core.TaskS
 }
 
 // GetByContainerID -> task by Container ID
-func (mem *MemoryTaskStore) GetByContainerID(ctx context.Context, containerID string) (*core.Task, error) {
+func (mem *MemoryTaskStore) GetByContainerID(ctx context.Context, containerID string) (*types.Task, error) {
 	if containerID == "" {
 		return nil, fmt.Errorf("container ID cannot be empty")
 	}
@@ -276,13 +276,13 @@ func (mem *MemoryTaskStore) GetByContainerID(ctx context.Context, containerID st
 }
 
 // TaskStats -> task Stats
-func (mem *MemoryTaskStore) TaskStats(ctx context.Context, id string) (*core.TaskStats, error) {
+func (mem *MemoryTaskStore) TaskStats(ctx context.Context, id string) (*types.TaskStats, error) {
 	task, err := mem.Get(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 
-	stats := &core.TaskStats{
+	stats := &types.TaskStats{
 		RestartCount:  task.RestartCount,
 		CurrentStatus: task.Status,
 		CPUUsage:      float64(task.CPUUsage),
@@ -298,7 +298,7 @@ func (mem *MemoryTaskStore) TaskStats(ctx context.Context, id string) (*core.Tas
 }
 
 // UpdateMany -> update many tasks
-func (mem *MemoryTaskStore) UpdateMany(ctx context.Context, tasks []core.Task) error {
+func (mem *MemoryTaskStore) UpdateMany(ctx context.Context, tasks []types.Task) error {
 	if len(tasks) == 0 {
 		return nil
 	}
@@ -334,7 +334,7 @@ func (mem *MemoryTaskStore) UpdateMany(ctx context.Context, tasks []core.Task) e
 }
 
 // UpdateStatus -> update only task status
-func (mem *MemoryTaskStore) UpdateStatus(ctx context.Context, id string, status core.TaskStatus) error {
+func (mem *MemoryTaskStore) UpdateStatus(ctx context.Context, id string, status types.TaskStatus) error {
 	if id == "" {
 		return fmt.Errorf("task ID cannot be empty")
 	}
@@ -381,7 +381,7 @@ func (mem *MemoryTaskStore) IncrementRestartCounter(ctx context.Context, id stri
 // ========== UTIL FUNCS FOR INDEXES ==========
 
 // updateIndices -> Update Indexes for Task
-func (s *MemoryTaskStore) updateIndices(task *core.Task) {
+func (s *MemoryTaskStore) updateIndices(task *types.Task) {
 	if task.ContainerID != "" {
 		s.byContainerID[task.ContainerID] = task.ID
 	}
@@ -407,7 +407,7 @@ func (s *MemoryTaskStore) updateIndices(task *core.Task) {
 }
 
 // updateIndicesWithOldValues -> Update Indexes by values
-func (s *MemoryTaskStore) updateIndicesWithOldValues(task *core.Task, oldContainerID, oldNodeID, oldServiceName string, oldStatus core.TaskStatus) {
+func (s *MemoryTaskStore) updateIndicesWithOldValues(task *types.Task, oldContainerID, oldNodeID, oldServiceName string, oldStatus types.TaskStatus) {
 	if oldContainerID != task.ContainerID {
 		if oldContainerID != "" {
 			delete(s.byContainerID, oldContainerID)
@@ -451,7 +451,7 @@ func (s *MemoryTaskStore) updateIndicesWithOldValues(task *core.Task, oldContain
 }
 
 // updateStatusIndex -> update only index by status
-func (s *MemoryTaskStore) updateStatusIndex(task *core.Task, oldStatus core.TaskStatus) {
+func (s *MemoryTaskStore) updateStatusIndex(task *types.Task, oldStatus types.TaskStatus) {
 	if oldStatus != task.Status {
 		if oldStatus != "" {
 			delete(s.byStatus[oldStatus], task.ID)
@@ -470,7 +470,7 @@ func (s *MemoryTaskStore) updateStatusIndex(task *core.Task, oldStatus core.Task
 }
 
 // removeFromIndices -> delete Task from all Indexes
-func (s *MemoryTaskStore) removeFromIndices(task *core.Task) {
+func (s *MemoryTaskStore) removeFromIndices(task *types.Task) {
 	if task.ContainerID != "" {
 		delete(s.byContainerID, task.ContainerID)
 	}
