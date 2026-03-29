@@ -530,7 +530,6 @@ func (o *Orchestrator) healthCheckLoop() {
 }
 
 // checkHealth -> check health
-// !!! NO SUCH METHOD IN DOCKER CLIENT !!!
 func (o *Orchestrator) checkHealth() {
 	ctx := context.Background()
 
@@ -544,7 +543,13 @@ func (o *Orchestrator) checkHealth() {
 		if task.ServiceConfig == nil {
 			continue
 		}
-		healthy := true
+
+		healthy, err := o.dockerClient.CheckContainerHealth(ctx, task.ContainerID, &task.ServiceConfig.HealthCheck)
+		if err != nil {
+			o.logger.Error("health check failed", "taskID", task.ID, "error", err)
+			task.UpdateTask(types.TaskStatusFailed)
+			o.taskStore.Update(ctx, task)
+		}
 
 		if !healthy {
 			o.logger.Warn("container unhealthy",
@@ -563,13 +568,6 @@ func (o *Orchestrator) checkHealth() {
 			}
 		}
 	}
-	// TODO -> By Docker Client Method (internal/client)
-	// healthy, err := o.dockerClient.CheckContainerHealth(ctx, task.ContainerID, task.ServiceConfig.HealthCheck)
-	// if err != nil {
-	//     o.logger.Error("health check failed", "task_id", task.ID, "error", err)
-	//     task.UpdateTask(TaskStatusFailed)
-	//     o.taskStore.Update(ctx, task)
-	// }
 
 	o.logger.Debug("health check completed", "checked_count", len(tasks))
 }
