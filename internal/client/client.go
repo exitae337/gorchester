@@ -23,6 +23,8 @@ type ContainerManager interface {
 	ListContainers(ctx context.Context, filters map[string]string) ([]DockerContainer, error)
 	// Download image for container
 	PullImage(ctx context.Context, image string) error
+	// Check container health
+	CheckContainerHealth(ctx context.Context, containerID string, healthOpts *types.HealthCheck) error
 	// Image exists
 	imageExists(ctx context.Context, image string) (bool, error)
 }

@@ -529,12 +529,11 @@ func (o *Orchestrator) healthCheckLoop() {
 	}
 }
 
-// checkHealth проверяет здоровье запущенных контейнеров
-// ВАЖНО: DockerClient пока не имеет метода для проверки здоровья.
+// checkHealth -> check health
+// !!! NO SUCH METHOD IN DOCKER CLIENT !!!
 func (o *Orchestrator) checkHealth() {
 	ctx := context.Background()
 
-	// Получаем все запущенные задачи
 	tasks, err := o.taskStore.ListByStatus(ctx, types.TaskStatusRunning)
 	if err != nil {
 		o.logger.Error("failed to list running tasks", "error", err)

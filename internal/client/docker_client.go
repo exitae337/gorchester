@@ -226,6 +226,63 @@ func (dc *DockerClient) PullImage(ctx context.Context, im string, logger *slog.L
 	return nil
 }
 
+// Check Container Health -> by client
+func (dc *DockerClient) CheckContainerHealth(ctx context.Context, containerID string, healthOpts *types.HealthCheck) (bool, error) {
+	const op = "client.HealthCheck"
+
+	if healthOpts == nil {
+		return true, nil
+	}
+
+	// Check -> Container exists?
+	inspect, err := dc.cli.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return false, fmt.Errorf("%s: failed to inspect container -> %w", op, err)
+	}
+
+	if !inspect.State.Running {
+		return false, nil // if not running -> false
+	}
+
+	switch healthOpts.Type {
+	case "http":
+		return dc.checkHealthByHTTP(ctx, containerID, healthOpts)
+		// TODO: tcp
+		// TODO: command
+	default:
+		return true, nil
+	}
+}
+
+func (dc *DockerClient) checkHealthByHTTP(ctx context.Context, containerID string, healthCheck *types.HealthCheck) (bool, error) {
+	const op = "client.HttpHealthCheck"
+	_, err := dc.cli.ContainerInspect(ctx, containerID)
+	if err != nil {
+		return false, fmt.Errorf("%s: failed to inspect container -> %w", op, err)
+	}
+
+	// Make URL -> Check on host
+	url := fmt.Sprintf("http://localhost:%d%s", healthCheck.Port, healthCheck.HTTPPath)
+
+	execConfig := types.ExecConfig{
+		Cmd:          []string{"curl", "-f", "-s", "-o", "/dev/null", "-w", "%{http_code}", url},
+		AttachStdOut: true,
+		AttachStdErr: true,
+	}
+
+	// Run command
+	exitCode, output, err := dc.execInContainer(ctx, containerID, &execConfig)
+	if err != nil {
+		return false, fmt.Errorf("%s: failed to exec cmd in Container -> %w", op, err)
+	}
+
+	if exitCode != 0 {
+		return false, fmt.Errorf("%s: container health check failed -> ContainerID: %s, %s, %s", op, containerID[:12], output, exitCode)
+	}
+
+	return true, nil
+}
+
 // ImageExists - check if image exists locally
 func (dc *DockerClient) imageExists(ctx context.Context, image string) (bool, error) {
 	const op = "client.imageExists"
@@ -242,6 +299,38 @@ func (dc *DockerClient) imageExists(ctx context.Context, image string) (bool, er
 	}
 
 	return true, nil
+}
+
+// exec in container func -> commands in Container
+func (dc *DockerClient) execInContainer(ctx context.Context, containerID string, execConfig *types.ExecConfig) (int, string, error) {
+	const op = "client.ExecinContainer"
+	exec, err := dc.cli.ContainerExecCreate(ctx, containerID, container.ExecOptions{
+		Cmd:          execConfig.Cmd,
+		AttachStdout: execConfig.AttachStdOut,
+		AttachStderr: execConfig.AttachStdErr,
+	})
+	if err != nil {
+		return -1, "", fmt.Errorf("%s: failed to exec command in container: %w, ContainerID: %s", op, err, containerID)
+	}
+
+	// Run exec and get Response
+	resp, err := dc.cli.ContainerExecAttach(ctx, exec.ID, container.ExecStartOptions{})
+	if err != nil {
+		return -1, "", fmt.Errorf("%s: failed to exec cmd in Container: %w, ContainerID: %s", op, err, containerID)
+	}
+	defer resp.Close()
+
+	output, err := io.ReadAll(resp.Reader)
+	if err != nil {
+		return -1, "", fmt.Errorf("%s: failed to read from resp.Reader -> %s", op, err)
+	}
+
+	inspectResp, err := dc.cli.ContainerExecInspect(ctx, exec.ID)
+	if err != nil {
+		return -1, string(output), fmt.Errorf("%s: failed to get resp from container -> %w", op, err)
+	}
+
+	return inspectResp.ExitCode, string(output), nil
 }
 
 // Util funcs

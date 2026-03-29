@@ -89,3 +89,10 @@ type ServiceConfig struct {
 	ScalePolicy ScalePolicy          `yaml:"scale_policy"` // Scaling policy
 	HealthCheck HealthCheck          `yaml:"health_check"` // Health checking
 }
+
+// ExecConfig struct -> run in Container for HealthCheck
+type ExecConfig struct {
+	Cmd          []string //Commands which will be running in the container
+	AttachStdOut bool     // To STD out
+	AttachStdErr bool     // With Errors
+}
