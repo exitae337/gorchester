@@ -510,3 +510,44 @@ func (s *SimpleScheduler) GetNodeStats(ctx context.Context, nodeID string) (*typ
 
 	return stats, nil
 }
+
+// ReleaseNodeResources
+func (s *SimpleScheduler) ReleaseNodeResources(ctx context.Context, nodeID string, task *types.Task) error {
+	s.mu.RLock()
+	node, exists := s.nodes[nodeID]
+	s.mu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("node %s not found", nodeID)
+	}
+
+	node.Mu.Lock()
+	defer node.Mu.Unlock()
+
+	// Clear CPU
+	node.UsedCPU -= task.ServiceConfig.Resources.CPUMilliCores
+	if node.UsedCPU < 0 {
+		node.UsedCPU = 0
+	}
+
+	// Free MEM
+	node.UsedMemory -= task.ServiceConfig.Resources.MemoryBytes
+	if node.UsedMemory < 0 {
+		node.UsedMemory = 0
+	}
+
+	// Decr task counter
+	node.TaskCount--
+	if node.TaskCount < 0 {
+		node.TaskCount = 0
+	}
+
+	s.logger.Debug("resources released",
+		"node_id", nodeID,
+		"task_id", task.ID,
+		"used_cpu", node.UsedCPU,
+		"used_memory", node.UsedMemory,
+		"task_count", node.TaskCount)
+
+	return nil
+}

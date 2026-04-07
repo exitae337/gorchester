@@ -1,11 +1,19 @@
 package main
 
 import (
+	"context"
 	"log"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
+	"github.com/exitae337/gorchester/internal/client"
 	"github.com/exitae337/gorchester/internal/config"
+	"github.com/exitae337/gorchester/internal/core"
+	"github.com/exitae337/gorchester/internal/scheduler"
+	"github.com/exitae337/gorchester/internal/store"
 )
 
 const (
@@ -24,7 +32,78 @@ func main() {
 	}
 	logger.Info("starting orchestrator", slog.String("env", cfg.Env))
 	logger.Debug("debug messages are enabled")
-	// TODO: Start orchestrator
+	// Make components
+	taskStore := store.New()
+	logger.Info("in-memory task store initialized")
+
+	// Docker Client
+	dockerClient, err := client.NewDockerClient()
+	if err != nil {
+		logger.Error("failed to create docker client", slog.Any("error", err))
+		os.Exit(1)
+	}
+	defer dockerClient.Close()
+	logger.Info("docker client connected")
+
+	schedulerConfig := scheduler.DefaultConfig()
+	schedulerConfig.Strategy = scheduler.StrategySpread
+	sched := scheduler.New(schedulerConfig, logger)
+	defer sched.Stop()
+
+	logger.Info("scheduler created", "strategy", schedulerConfig.Strategy)
+
+	// MAKE ORCH
+	orch := core.New(
+		cfg,
+		taskStore,
+		dockerClient,
+		sched,
+		logger,
+	)
+
+	if err := orch.Start(); err != nil {
+		logger.Error("failed to start orchestrator", "error", err)
+		os.Exit(1)
+	}
+
+	logger.Info("orchestrtor started!")
+
+	// Print info
+	printServiceStatus(context.Background(), orch, logger)
+
+	// Quit signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	logger.Info("shutting down...")
+
+	// Stop orchestrator
+	if err := orch.Stop(); err != nil {
+		logger.Error("failed to stop orchestartor", slog.Any("error", err))
+	}
+
+	logger.Info("orchestrator stopped")
+}
+
+func printServiceStatus(ctx context.Context, orch *core.Orchestrator, logger *slog.Logger) {
+	time.Sleep(2 * time.Second)
+
+	tasks, err := orch.ListTasks(ctx)
+	if err != nil {
+		logger.Error("failed to list tasks", "error", err)
+		return
+	}
+
+	logger.Info("current tasks status")
+	for _, task := range tasks {
+		logger.Info("task",
+			"id", task.ID[:8],
+			"service", task.ServiceName,
+			"status", task.Status,
+			"node", task.NodeID,
+			"container", task.ContainerID[:12])
+	}
 }
 
 func setupLogger(env string) *slog.Logger {

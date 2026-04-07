@@ -32,7 +32,7 @@ type Scheduler interface {
 	UpdateNodeStatus(ctx context.Context, nodeID string, status types.NodeStatus) error
 
 	// Release Node Resources
-	ReleaseNodeResources(ctx context.Context, nodeID string, task *types.Task)
+	ReleaseNodeResources(ctx context.Context, nodeID string, task *types.Task) error
 }
 
 // Store interface
@@ -150,7 +150,7 @@ func (o *Orchestrator) Start() error {
 
 	// Init services from config
 	if err := o.initServices(); err != nil {
-		o.logger.Error("failed to init services from config", err)
+		o.logger.Error("failed to init services from config", slog.Any("error", err))
 		o.cancel()
 		o.wg.Wait()
 		o.isRunning = false
@@ -187,7 +187,7 @@ func (o *Orchestrator) Stop() error {
 	case <-done:
 		o.logger.Info("orchestrator stopped gracefully!")
 	case <-time.After(30 * time.Second):
-		o.logger.Warn("orchestrtor stopping time out")
+		o.logger.Warn("orchestrtor stopping time is out")
 	}
 
 	o.isRunning = false

@@ -216,13 +216,25 @@ func (dc *DockerClient) PullImage(ctx context.Context, im string, logger *slog.L
 		}
 
 		// Logging every 3 seconds
-		if time.Now().Sub(lastLogTime) >= logInterval || msg.Status == "Download complete" {
+		if time.Since(lastLogTime) >= logInterval || msg.Status == "Download complete" {
 			logger.Info("downloading image", slog.String("status", msg.Status), slog.String("progress", msg.Progress))
 			lastLogTime = time.Now()
 		}
 
 	}
 
+	return nil
+}
+
+// Close закрывает соединение с Docker daemon
+func (dc *DockerClient) Close() error {
+	const op = "client.Close"
+
+	if dc.cli != nil {
+		if err := dc.cli.Close(); err != nil {
+			return fmt.Errorf("%s: failed to close docker client: %w", op, err)
+		}
+	}
 	return nil
 }
 
@@ -247,8 +259,10 @@ func (dc *DockerClient) CheckContainerHealth(ctx context.Context, containerID st
 	switch healthOpts.Type {
 	case "http":
 		return dc.checkHealthByHTTP(ctx, containerID, healthOpts)
-		// TODO: tcp
-		// TODO: command
+	case "tcp":
+		return dc.checkHealthByTCP(ctx, containerID, healthOpts)
+	case "command":
+		return dc.checkChealthByCommand(ctx, containerID, healthOpts)
 	default:
 		return true, nil
 	}
@@ -277,7 +291,55 @@ func (dc *DockerClient) checkHealthByHTTP(ctx context.Context, containerID strin
 	}
 
 	if exitCode != 0 {
-		return false, fmt.Errorf("%s: container health check failed -> ContainerID: %s, %s, %s", op, containerID[:12], output, exitCode)
+		return false, fmt.Errorf("%s: container health check failed -> ContainerID: %s, %s, %d", op, containerID[:12], output, exitCode)
+	}
+
+	return true, nil
+}
+
+// TCP Health Check func
+func (dc *DockerClient) checkHealthByTCP(ctx context.Context, containerID string, healthCheck *types.HealthCheck) (bool, error) {
+	const op = "client.checkHealthByTCP"
+
+	// Use BASH for TCP check
+	cmd := fmt.Sprintf("timeout %d bash -c 'echo > /dev/tcp/localhost/%d' 2>/dev/null",
+		int(healthCheck.Timeout.Seconds()), healthCheck.Port)
+
+	execConfig := types.ExecConfig{
+		Cmd:          []string{"sh", "-c", cmd},
+		AttachStdOut: true,
+		AttachStdErr: true,
+	}
+
+	exitCode, output, err := dc.execInContainer(ctx, containerID, &execConfig)
+	if err != nil {
+		return false, fmt.Errorf("%s: exec failed due to: %w", op, err)
+	}
+
+	if exitCode != 0 {
+		return false, fmt.Errorf("TCP Health Check failed: %s, %d, %d, output: %s", containerID, healthCheck.Port, exitCode, output)
+	}
+
+	return true, nil
+}
+
+// Check Health by Command
+func (dc *DockerClient) checkChealthByCommand(ctx context.Context, containerID string, healthCheck *types.HealthCheck) (bool, error) {
+	const op = "client.checkHealthByCMD"
+
+	execConfig := types.ExecConfig{
+		Cmd:          healthCheck.Command,
+		AttachStdOut: true,
+		AttachStdErr: true,
+	}
+
+	exitCode, output, err := dc.execInContainer(ctx, containerID, &execConfig)
+	if err != nil {
+		return false, fmt.Errorf("%s: failed to check container health by command: %w", op, err)
+	}
+
+	if exitCode != 0 {
+		return false, fmt.Errorf("CMD Health Check failed: %s, %d, %d, output: %s", containerID, healthCheck.Port, exitCode, output)
 	}
 
 	return true, nil
