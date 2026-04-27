@@ -63,6 +63,10 @@ type SimpleScheduler struct {
 	// Round-robin
 	roundRobinIndex map[string]int // serviceName -> last index
 
+	// Heartbeat workers
+	heartbeatWorkers map[string]context.CancelFunc // nodeID: cancelFunc
+	heartbeatMu      sync.Mutex
+
 	logger *slog.Logger
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -81,16 +85,21 @@ func New(config *SchedulerConfig, logger *slog.Logger) *SimpleScheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := &SimpleScheduler{
-		config:          config,
-		nodes:           make(map[string]*types.Node),
-		roundRobinIndex: make(map[string]int),
-		logger:          logger.With("component", "scheduler"),
-		ctx:             ctx,
-		cancel:          cancel,
+		config:           config,
+		nodes:            make(map[string]*types.Node),
+		roundRobinIndex:  make(map[string]int),
+		heartbeatWorkers: make(map[string]context.CancelFunc),
+		logger:           logger.With("component", "scheduler"),
+		ctx:              ctx,
+		cancel:           cancel,
 	}
 
-	// FOR TESTING!!!
 	s.addTestNodes()
+
+	// Start heartbeat workers
+	for nodeID := range s.nodes {
+		s.startHeatbeatWorker(nodeID)
+	}
 
 	// Clean Up LOOP
 	s.wg.Add(1)
@@ -101,6 +110,14 @@ func New(config *SchedulerConfig, logger *slog.Logger) *SimpleScheduler {
 
 // Stop -> Scheduler stop
 func (s *SimpleScheduler) Stop() {
+	s.heartbeatMu.Lock()
+	for nodeID, cancel := range s.heartbeatWorkers {
+		cancel()
+		s.logger.Debug("heartbeat worker cancelled", "node_id", nodeID)
+		delete(s.heartbeatWorkers, nodeID)
+	}
+	s.heartbeatMu.Unlock()
+
 	s.cancel()
 	s.wg.Wait()
 }
@@ -195,6 +212,7 @@ func (s *SimpleScheduler) cleanupInactiveNodes() {
 		if now.Sub(node.LastSeen) > timeout {
 			s.logger.Warn("node inactive, removing", "node_id", id, "last_seen", node.LastSeen)
 			delete(s.nodes, id)
+			go s.stopHeartbeatWorker(id)
 		}
 	}
 }
@@ -463,6 +481,8 @@ func (s *SimpleScheduler) RegisterNode(ctx context.Context, node *types.Node) er
 	node.UsedMemory = 0
 	s.nodes[node.ID] = node
 
+	s.startHeatbeatWorker(node.ID)
+
 	s.logger.Info("node registered", "node_id", node.ID, "hostname", node.Hostname)
 	return nil
 }
@@ -475,6 +495,8 @@ func (s *SimpleScheduler) UnregisterNode(ctx context.Context, nodeID string) err
 	if _, exists := s.nodes[nodeID]; !exists {
 		return fmt.Errorf("node with ID %s not found", nodeID)
 	}
+
+	s.stopHeartbeatWorker(nodeID)
 
 	delete(s.nodes, nodeID)
 	s.logger.Info("node unregistered", "node_id", nodeID)
@@ -573,4 +595,64 @@ func (s *SimpleScheduler) ReleaseNodeResources(ctx context.Context, nodeID strin
 		"task_count", node.TaskCount)
 
 	return nil
+}
+
+// Heartbeat workers methods
+func (s *SimpleScheduler) startHeatbeatWorker(nodeID string) {
+	s.heartbeatMu.Lock()
+	defer s.heartbeatMu.Unlock()
+
+	// Check if heartbeat worker is already started
+	if _, exists := s.heartbeatWorkers[nodeID]; exists {
+		return
+	}
+
+	ctx, cancel := context.WithCancel(s.ctx)
+	s.heartbeatWorkers[nodeID] = cancel
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		ticker := time.NewTicker(10 * time.Second) // every 10 secs
+		defer ticker.Stop()
+
+		s.logger.Debug("heartbeat worker started", "node_id", nodeID)
+
+		for {
+			select {
+			case <-ctx.Done():
+				s.logger.Debug("heartbeat worker stopped", "node_id", nodeID)
+				return
+			case <-ticker.C:
+				s.sendHeartbeat(nodeID)
+			}
+		}
+	}()
+}
+
+// stopHeartbeatWorker - stop goriutine worker for node
+func (s *SimpleScheduler) stopHeartbeatWorker(nodeID string) {
+	s.heartbeatMu.Lock()
+	defer s.heartbeatMu.Unlock()
+
+	if cancel, exists := s.heartbeatWorkers[nodeID]; exists {
+		cancel()
+		delete(s.heartbeatWorkers, nodeID)
+	}
+}
+
+func (s *SimpleScheduler) sendHeartbeat(nodeID string) {
+	s.mu.RLock()
+	node, exists := s.nodes[nodeID]
+	s.mu.RUnlock()
+
+	if !exists {
+		return
+	}
+
+	node.Mu.Lock()
+	node.LastSeen = time.Now()
+	node.Mu.Unlock()
+
+	s.logger.Debug("heartbeat sent", "node_id", nodeID)
 }

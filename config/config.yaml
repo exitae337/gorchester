@@ -8,7 +8,7 @@ services:
     image: "nginx:alpine"
     replicas: 2
     ports:
-      - host_port: 8081
+      - host_port: 0
         container_port: 80
         protocol: "tcp"
     resources:
