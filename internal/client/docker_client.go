@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/containerd/errdefs"
+	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
@@ -238,6 +239,39 @@ func (dc *DockerClient) Close() error {
 	return nil
 }
 
+// Get container status func
+func (dc *DockerClient) GetConatinerStatus(ctx context.Context, containerID string) (string, error) {
+	const op = "client.GetContainerStats"
+
+	ctx, cancel := context.WithTimeout(ctx, dc.timeout)
+	defer cancel()
+
+	inspect, err := dc.cli.ContainerInspect(ctx, containerID)
+	if err != nil {
+		if cerrdefs.IsNotFound(err) {
+			return "not_found", err
+		}
+		return "", fmt.Errorf("%s: failed to inspect container with id: %s, %w", op, containerID[:12], err)
+	}
+
+	if !inspect.State.Running {
+		return inspect.State.Status, nil
+	}
+
+	if inspect.State.Health != nil {
+		switch inspect.State.Health.Status {
+		case "healthy":
+			return "running_healthy", nil
+		case "unhealthy":
+			return "running_unhealthy", nil
+		case "starting":
+			return "starting", nil
+		}
+	}
+
+	return "running", nil
+}
+
 // Check Container Health -> by client
 func (dc *DockerClient) CheckContainerHealth(ctx context.Context, containerID string, healthOpts *types.HealthCheck) (bool, error) {
 	const op = "client.HealthCheck"
@@ -262,7 +296,7 @@ func (dc *DockerClient) CheckContainerHealth(ctx context.Context, containerID st
 	case "tcp":
 		return dc.checkHealthByTCP(ctx, containerID, healthOpts)
 	case "command":
-		return dc.checkChealthByCommand(ctx, containerID, healthOpts)
+		return dc.checkHealthByCommand(ctx, containerID, healthOpts)
 	default:
 		return true, nil
 	}
@@ -324,7 +358,7 @@ func (dc *DockerClient) checkHealthByTCP(ctx context.Context, containerID string
 }
 
 // Check Health by Command
-func (dc *DockerClient) checkChealthByCommand(ctx context.Context, containerID string, healthCheck *types.HealthCheck) (bool, error) {
+func (dc *DockerClient) checkHealthByCommand(ctx context.Context, containerID string, healthCheck *types.HealthCheck) (bool, error) {
 	const op = "client.checkHealthByCMD"
 
 	execConfig := types.ExecConfig{

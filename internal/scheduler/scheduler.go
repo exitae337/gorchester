@@ -107,6 +107,9 @@ func (s *SimpleScheduler) Stop() {
 
 // Test nodes for development -> TODO !!! -> FOR TESTING
 func (s *SimpleScheduler) addTestNodes() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	testNodes := []*types.Node{
 		{
 			ID:       "node-1",
@@ -266,6 +269,11 @@ func (s *SimpleScheduler) filterReadyNodes(nodes []*types.Node) []*types.Node {
 
 // filterFeasibleNodes -> only Nodes with resources
 func (s *SimpleScheduler) filterFeasibleNodes(nodes []*types.Node, task *types.Task) []*types.Node {
+	// Nil check
+	if task == nil || task.ServiceConfig == nil {
+		return []*types.Node{}
+	}
+
 	reqCPU := task.ServiceConfig.Resources.CPUMilliCores
 	reqMem := task.ServiceConfig.Resources.MemoryBytes
 
@@ -373,6 +381,14 @@ func (s *SimpleScheduler) selectLeastResource(nodes []*types.Node, task *types.T
 	reqCPU := task.ServiceConfig.Resources.CPUMilliCores
 	reqMem := task.ServiceConfig.Resources.MemoryBytes
 
+	// Zero division problem
+	if reqCPU == 0 {
+		reqCPU = 1
+	}
+	if reqMem == 0 {
+		reqMem = 1
+	}
+
 	// Sort by max Resource
 	sort.Slice(nodes, func(i, j int) bool {
 		iCPUFree := nodes[i].Resources.CPU - nodes[i].UsedCPU
@@ -411,6 +427,13 @@ func (s *SimpleScheduler) updateNodeResources(nodeID string, task *types.Task) {
 
 // GetNodes -> Get All Nodes
 func (s *SimpleScheduler) GetNodes(ctx context.Context) ([]*types.Node, error) {
+	// Checking ctx cancel
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

@@ -87,7 +87,20 @@ func main() {
 }
 
 func printServiceStatus(ctx context.Context, orch *core.Orchestrator, logger *slog.Logger) {
-	time.Sleep(2 * time.Second)
+	for i := 0; i < 15; i++ {
+		time.Sleep(2 * time.Second)
+
+		tasks, err := orch.ListTasks(ctx)
+		if err != nil {
+			logger.Error("failed to list tasks", "error", err)
+			return
+		}
+
+		if len(tasks) > 0 {
+			break
+		}
+		logger.Debug("waiting for tasks to be created...", "attempt", i+1)
+	}
 
 	tasks, err := orch.ListTasks(ctx)
 	if err != nil {

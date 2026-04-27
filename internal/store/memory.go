@@ -73,8 +73,8 @@ func (mem *MemoryTaskStore) Get(ctx context.Context, id string) (*types.Task, er
 		return nil, fmt.Errorf("task ID can't be nil")
 	}
 
-	mem.mu.Lock()
-	defer mem.mu.Unlock()
+	mem.mu.RLock()
+	defer mem.mu.RUnlock()
 
 	task, exists := mem.tasks[id]
 	if !exists {
@@ -127,7 +127,7 @@ func (mem *MemoryTaskStore) Delete(ctx context.Context, id string) error {
 
 	task, exists := mem.tasks[id]
 	if !exists {
-		fmt.Errorf("task with ID %s is not exists", id)
+		return fmt.Errorf("task with ID %s is not exists", id)
 	}
 
 	delete(mem.tasks, id)

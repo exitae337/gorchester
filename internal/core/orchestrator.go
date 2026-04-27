@@ -143,10 +143,10 @@ func (o *Orchestrator) Start() error {
 	o.isRunning = true
 
 	// Background cycles
-	o.wg.Add(3)
+	o.wg.Add(4)
 	go o.healthCheckLoop()
 	go o.reconcileLoop()
-	// cleanupLoop()
+	go o.cleanUpLoop()
 
 	// Init services from config
 	if err := o.initServices(); err != nil {
@@ -364,7 +364,7 @@ func (o *Orchestrator) reconcileLoop() {
 
 // reconcile -> check and fix cluster status
 func (o *Orchestrator) reconcile() {
-	ctx := context.Background()
+	ctx := o.ctx // Use orchestrator context
 	o.logger.Debug("starting reconciliation")
 
 	// 1. Get all Tasks that we have
@@ -459,8 +459,7 @@ func (o *Orchestrator) reconcile() {
 				"current", currentReplicas,
 				"max", svc.ScalePolicy.MaxReplicas,
 				"excess", excess)
-			// TODO: реализовать остановку лишних задач
-			o.scaleDown(ctx, &svc, tasks, excess)
+			o.scaleDown(ctx, tasks, excess)
 		}
 	}
 
@@ -468,7 +467,7 @@ func (o *Orchestrator) reconcile() {
 }
 
 // scaleDown -> stops excees tasks
-func (o *Orchestrator) scaleDown(ctx context.Context, svc *types.ServiceConfig, tasks []*types.Task, excess int) {
+func (o *Orchestrator) scaleDown(ctx context.Context, tasks []*types.Task, excess int) {
 	for i := 0; i < excess && i < len(tasks); i++ {
 		task := tasks[len(tasks)-1-i]
 		if task.Status != types.TaskStatusRunning {
@@ -531,7 +530,7 @@ func (o *Orchestrator) healthCheckLoop() {
 
 // checkHealth -> check health
 func (o *Orchestrator) checkHealth() {
-	ctx := context.Background()
+	ctx := o.ctx
 
 	tasks, err := o.taskStore.ListByStatus(ctx, types.TaskStatusRunning)
 	if err != nil {
@@ -540,15 +539,39 @@ func (o *Orchestrator) checkHealth() {
 	}
 
 	for _, task := range tasks {
-		if task.ServiceConfig == nil {
+		if task.ServiceConfig == nil || task.ServiceConfig.HealthCheck == nil {
 			continue
 		}
 
-		healthy, err := o.dockerClient.CheckContainerHealth(ctx, task.ContainerID, &task.ServiceConfig.HealthCheck)
+		// Сначала проверяем статус контейнера
+		status, err := o.dockerClient.GetConatinerStatus(ctx, task.ContainerID)
 		if err != nil {
-			o.logger.Error("health check failed", "taskID", task.ID, "error", err)
-			task.UpdateTask(types.TaskStatusFailed)
+			o.logger.Error("failed to get container status", "task_id", task.ID, "error", err)
+			continue
+		}
+
+		// Если контейнер не запущен, помечаем как failed
+		if status != "running" && status != "running_healthy" && status != "starting" {
+			o.logger.Warn("container not running",
+				"task_id", task.ID,
+				"status", status)
+
+			task.Status = types.TaskStatusFailed
+			now := time.Now()
+			task.FinishedAt = &now
 			o.taskStore.Update(ctx, task)
+
+			if task.NodeID != "" {
+				o.scheduler.ReleaseNodeResources(ctx, task.NodeID, task)
+			}
+			continue
+		}
+
+		// Проверяем health через специальную функцию
+		healthy, err := o.dockerClient.CheckContainerHealth(ctx, task.ContainerID, task.ServiceConfig.HealthCheck)
+		if err != nil {
+			o.logger.Error("health check error", "task_id", task.ID, "error", err)
+			continue
 		}
 
 		if !healthy {
@@ -556,13 +579,11 @@ func (o *Orchestrator) checkHealth() {
 				"task_id", task.ID,
 				"service", task.ServiceName)
 
-			// Task status = failed
 			task.Status = types.TaskStatusFailed
 			now := time.Now()
 			task.FinishedAt = &now
 			o.taskStore.Update(ctx, task)
 
-			// Release resources
 			if task.NodeID != "" {
 				o.scheduler.ReleaseNodeResources(ctx, task.NodeID, task)
 			}

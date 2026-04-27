@@ -87,7 +87,7 @@ type ServiceConfig struct {
 
 	Resources   ResourceRequirements `yaml:"resources"`    // Resources for service
 	ScalePolicy ScalePolicy          `yaml:"scale_policy"` // Scaling policy
-	HealthCheck HealthCheck          `yaml:"health_check"` // Health checking
+	HealthCheck *HealthCheck         `yaml:"health_check"` // Health checking
 }
 
 // ExecConfig struct -> run in Container for HealthCheck

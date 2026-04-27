@@ -141,7 +141,7 @@ func LoadConfig(path string) (*types.OchestratorConfig, error) {
 func applyDefaults(config *types.OchestratorConfig) {
 	for i := range config.Services {
 		applyScalePolicyDefaults(&config.Services[i].ScalePolicy)
-		applyHealthCheckDefaults(&config.Services[i].HealthCheck)
+		applyHealthCheckDefaults(config.Services[i].HealthCheck)
 	}
 }
 
