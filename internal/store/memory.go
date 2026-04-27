@@ -139,8 +139,8 @@ func (mem *MemoryTaskStore) Delete(ctx context.Context, id string) error {
 
 // List all tasks
 func (mem *MemoryTaskStore) List(ctx context.Context) ([]*types.Task, error) {
-	mem.mu.Lock()
-	defer mem.mu.Unlock()
+	mem.mu.RLock()
+	defer mem.mu.RUnlock()
 
 	tasks := make([]*types.Task, 0, len(mem.tasks))
 	for _, task := range mem.tasks {
@@ -156,8 +156,8 @@ func (mem *MemoryTaskStore) ListByService(ctx context.Context, serviceName strin
 		return nil, fmt.Errorf("serviceName can't be nil")
 	}
 
-	mem.mu.Lock()
-	defer mem.mu.Unlock()
+	mem.mu.RLock()
+	defer mem.mu.RUnlock()
 
 	tasksID, exists := mem.byServiceName[serviceName]
 	if !exists {

@@ -12,7 +12,6 @@ import (
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	"github.com/exitae337/gorchester/internal/types"
@@ -102,21 +101,12 @@ func (dc *DockerClient) CreateContainer(ctx context.Context, service *types.Serv
 		ExtraHosts:  service.ExtraHosts,
 	}
 
-	// Network Config
-	networkConfig := &network.NetworkingConfig{
-		EndpointsConfig: map[string]*network.EndpointSettings{
-			service.Network: {
-				NetworkID: service.Network,
-			},
-		},
-	}
-
 	// Make container
 	resp, err := dc.cli.ContainerCreate(
 		ctx,
 		containerConfig,
 		hostConfig,
-		networkConfig,
+		nil,
 		nil, // Platform
 		generateContainerName(service.ServiceName, taskID),
 	)

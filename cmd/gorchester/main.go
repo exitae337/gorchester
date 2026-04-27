@@ -87,20 +87,8 @@ func main() {
 }
 
 func printServiceStatus(ctx context.Context, orch *core.Orchestrator, logger *slog.Logger) {
-	for i := 0; i < 15; i++ {
-		time.Sleep(2 * time.Second)
-
-		tasks, err := orch.ListTasks(ctx)
-		if err != nil {
-			logger.Error("failed to list tasks", "error", err)
-			return
-		}
-
-		if len(tasks) > 0 {
-			break
-		}
-		logger.Debug("waiting for tasks to be created...", "attempt", i+1)
-	}
+	// Ждем дольше - 10 секунд вместо 2
+	time.Sleep(10 * time.Second)
 
 	tasks, err := orch.ListTasks(ctx)
 	if err != nil {
@@ -108,14 +96,34 @@ func printServiceStatus(ctx context.Context, orch *core.Orchestrator, logger *sl
 		return
 	}
 
+	if len(tasks) == 0 {
+		logger.Info("no tasks found")
+		return
+	}
+
 	logger.Info("current tasks status")
 	for _, task := range tasks {
+		// Безопасное получение container ID
+		containerID := task.ContainerID
+		if containerID == "" {
+			containerID = "pending"
+		} else if len(containerID) > 12 {
+			containerID = containerID[:12]
+		}
+
+		// Безопасное получение task ID
+		taskID := task.ID
+		if len(taskID) > 8 {
+			taskID = taskID[:8]
+		}
+
 		logger.Info("task",
-			"id", task.ID[:8],
+			"id", taskID,
 			"service", task.ServiceName,
 			"status", task.Status,
 			"node", task.NodeID,
-			"container", task.ContainerID[:12])
+			"container", containerID,
+			"restarts", task.RestartCount)
 	}
 }
 

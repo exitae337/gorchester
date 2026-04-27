@@ -1,4 +1,4 @@
-env: "dev"
+env: "local"
 listen_addr: ":8080"
 data_dir: "./test-data"
 cluster_name: "dev-cluster"
@@ -12,8 +12,8 @@ services:
         container_port: 80
         protocol: "tcp"
     resources:
-      cpu_millicores: 50
-      memory_bytes: 67108864  
+      cpu_millicores: 200
+      memory_bytes: 134217728
     scale_policy:
       min_replicas: 1
       max_replicas: 3
@@ -23,8 +23,8 @@ services:
       type: "http"
       http_path: "/"
       port: 80
-      interval: 10s
-      timeout: 5s
+      interval: "10s"  # ✅ строка
+      timeout: "5s"    # ✅ строка
       retries: 3
 
   - service_name: "test-cache"
@@ -35,13 +35,13 @@ services:
         container_port: 6379
         protocol: "tcp"
     resources:
-      cpu_millicores: 30
-      memory_bytes: 33554432  # 32MB
+      cpu_millicores: 100
+      memory_bytes: 67108864
     health_check:
       type: "tcp"
       port: 6379
-      interval: 15s
-      timeout: 5s
+      interval: "15s"  # ✅ строка
+      timeout: "5s"    # ✅ строка
       retries: 3
 
   - service_name: "echo-service"
@@ -52,11 +52,11 @@ services:
       - "-c"
       - "echo 'Test service running' && sleep 3600"
     resources:
-      cpu_millicores: 10
-      memory_bytes: 16777216 
+      cpu_millicores: 50
+      memory_bytes: 33554432
     health_check:
       type: "command"
       command: ["echo", "healthy"]
-      interval: 30s
-      timeout: 5s
+      interval: "30s"  # ✅ строка
+      timeout: "5s"    # ✅ строка
       retries: 2
