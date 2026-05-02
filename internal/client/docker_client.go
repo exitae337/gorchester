@@ -292,6 +292,11 @@ func (dc *DockerClient) CheckContainerHealth(ctx context.Context, containerID st
 	}
 }
 
+// GetClient возвращает базового клиента Docker для метрик
+func (dc *DockerClient) GetClient() *client.Client {
+	return dc.cli
+}
+
 func (dc *DockerClient) checkHealthByHTTP(ctx context.Context, containerID string, healthCheck *types.HealthCheck) (bool, error) {
 	const op = "client.HttpHealthCheck"
 	_, err := dc.cli.ContainerInspect(ctx, containerID)

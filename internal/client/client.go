@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/docker/docker/client"
 	"github.com/exitae337/gorchester/internal/types"
 )
 
@@ -27,6 +28,8 @@ type ContainerManager interface {
 	CheckContainerHealth(ctx context.Context, containerID string, healthOpts *types.HealthCheck) error
 	// Image exists
 	imageExists(ctx context.Context, image string) (bool, error)
+	// GetClient
+	GetClient() *client.Client
 }
 
 // Docker container struct
