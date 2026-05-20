@@ -549,16 +549,17 @@ func (o *Orchestrator) reconcile() {
 						"error", err)
 				}
 
-				// Stop and remove container if exists
+				// Отключаем контейнер от сетей и удаляем
 				if task.ContainerID != "" {
-					if err := o.dockerClient.StopContainer(ctx, task.ContainerID); err != nil {
-						o.logger.Warn("failed to stop container for restart",
-							"task_id", task.ID,
-							"container", task.ContainerID[:12],
-							"error", err)
-					}
+					// Останавливаем (контейнер может уже не работать)
+					o.dockerClient.StopContainer(ctx, task.ContainerID)
+
+					// Отключаем от сети для предотвращения конфликта
+					o.dockerClient.DisconnectFromNetwork(ctx, task.ContainerID)
+
+					// Удаляем
 					if err := o.dockerClient.RemoveContainer(ctx, task.ContainerID); err != nil {
-						o.logger.Warn("failed to remove container for restart",
+						o.logger.Warn("failed to remove container",
 							"task_id", task.ID,
 							"container", task.ContainerID[:12],
 							"error", err)
@@ -734,16 +735,17 @@ func (o *Orchestrator) scaleDownService(ctx context.Context, service *types.Serv
 			continue
 		}
 
-		// Stop container
+		// Отключаем контейнер от сетей и удаляем
 		if task.ContainerID != "" {
-			if err := o.dockerClient.StopContainer(ctx, task.ContainerID); err != nil {
-				o.logger.Warn("failed to stop container during scale down",
-					"task_id", task.ID,
-					"container", task.ContainerID[:12],
-					"error", err)
-			}
+			// Останавливаем (контейнер может уже не работать)
+			o.dockerClient.StopContainer(ctx, task.ContainerID)
+
+			// Отключаем от сети для предотвращения конфликта
+			o.dockerClient.DisconnectFromNetwork(ctx, task.ContainerID)
+
+			// Удаляем
 			if err := o.dockerClient.RemoveContainer(ctx, task.ContainerID); err != nil {
-				o.logger.Warn("failed to remove container during scale down",
+				o.logger.Warn("failed to remove container",
 					"task_id", task.ID,
 					"container", task.ContainerID[:12],
 					"error", err)

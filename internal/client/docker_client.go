@@ -133,6 +133,33 @@ func (dc *DockerClient) CreateContainer(ctx context.Context, service *types.Serv
 	return resp.ID, nil
 }
 
+// DisconnectFromNetwork отключает контейнер от всех сетей перед удалением
+func (dc *DockerClient) DisconnectFromNetwork(ctx context.Context, containerID string) error {
+	const op = "client.DisconnectFromNetwork"
+
+	ctx, cancel := context.WithTimeout(ctx, dc.timeout)
+	defer cancel()
+
+	// Получаем информацию о контейнере
+	inspect, err := dc.cli.ContainerInspect(ctx, containerID)
+	if err != nil {
+		// Контейнер уже удален или не существует — не ошибка
+		return nil
+	}
+
+	// Отключаем от всех кастомных сетей
+	for networkName := range inspect.NetworkSettings.Networks {
+		if networkName != "bridge" && networkName != "host" && networkName != "none" {
+			if err := dc.cli.NetworkDisconnect(ctx, networkName, containerID, true); err != nil {
+				// Логируем, но не считаем критической ошибкой
+				continue
+			}
+		}
+	}
+
+	return nil
+}
+
 // Start container
 func (dc *DockerClient) StartContainer(ctx context.Context, containerID string) error {
 	const op = "client.StartConatiner"

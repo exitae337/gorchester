@@ -30,6 +30,8 @@ type ContainerManager interface {
 	imageExists(ctx context.Context, image string) (bool, error)
 	// GetClient
 	GetClient() *client.Client
+	// Disconnect from network
+	DisconnectFromNetwork(ctx context.Context, containerID string) error
 }
 
 // Docker container struct
