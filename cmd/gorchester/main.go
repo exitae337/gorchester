@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/exitae337/gorchester/internal/api"
 	"github.com/exitae337/gorchester/internal/client"
 	"github.com/exitae337/gorchester/internal/config"
 	"github.com/exitae337/gorchester/internal/core"
@@ -47,7 +48,7 @@ func main() {
 
 	schedulerConfig := scheduler.DefaultConfig()
 	schedulerConfig.Strategy = scheduler.StrategySpread
-	sched := scheduler.New(schedulerConfig, logger)
+	sched := scheduler.New(schedulerConfig, logger, cfg.Nodes, taskStore)
 	defer sched.Stop()
 
 	logger.Info("scheduler created", "strategy", schedulerConfig.Strategy)
@@ -67,6 +68,15 @@ func main() {
 	}
 
 	logger.Info("orchestrtor started!")
+
+	// Create and start API Server
+	apiServer := api.NewAPIServer(orch, sched, orch.GetMetricsStore(), logger)
+	go func() {
+		logger.Info("API server starting", "addr", cfg.ListenAddr)
+		if err := apiServer.Start(cfg.ListenAddr); err != nil {
+			logger.Error("API server failed", "error", err)
+		}
+	}()
 
 	// Print info
 	printServiceStatus(context.Background(), orch, logger)

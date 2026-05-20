@@ -56,3 +56,13 @@ type NodeStats struct {
 	MemoryUsage  float64 // процент использования
 	Uptime       time.Duration
 }
+
+// NodeConfig — конфигурация узла из config.yaml
+type NodeConfig struct {
+	ID       string            `yaml:"id" json:"id"`
+	Hostname string            `yaml:"hostname" json:"hostname"`
+	IP       string            `yaml:"ip" json:"ip"`
+	CPU      int64             `yaml:"cpu" json:"cpu"`       // в миллиядрах
+	Memory   int64             `yaml:"memory" json:"memory"` // в байтах
+	Labels   map[string]string `yaml:"labels,omitempty" json:"labels,omitempty"`
+}

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/exitae337/gorchester/internal/store"
 	"github.com/exitae337/gorchester/internal/types"
 )
 
@@ -67,14 +68,15 @@ type SimpleScheduler struct {
 	heartbeatWorkers map[string]context.CancelFunc // nodeID: cancelFunc
 	heartbeatMu      sync.Mutex
 
-	logger *slog.Logger
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	taskStore store.TaskStore
+	logger    *slog.Logger
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
 }
 
 // NEW() -> constructor for scheduler()
-func New(config *SchedulerConfig, logger *slog.Logger) *SimpleScheduler {
+func New(config *SchedulerConfig, logger *slog.Logger, nodesConfig []types.NodeConfig, taskStore store.TaskStore) *SimpleScheduler {
 	if config == nil {
 		config = DefaultConfig()
 	}
@@ -89,12 +91,13 @@ func New(config *SchedulerConfig, logger *slog.Logger) *SimpleScheduler {
 		nodes:            make(map[string]*types.Node),
 		roundRobinIndex:  make(map[string]int),
 		heartbeatWorkers: make(map[string]context.CancelFunc),
+		taskStore:        taskStore,
 		logger:           logger.With("component", "scheduler"),
 		ctx:              ctx,
 		cancel:           cancel,
 	}
 
-	s.addTestNodes()
+	s.loadNodesFromConfig(nodesConfig)
 
 	// Start heartbeat workers
 	for nodeID := range s.nodes {
@@ -106,6 +109,39 @@ func New(config *SchedulerConfig, logger *slog.Logger) *SimpleScheduler {
 	go s.cleanupLoop()
 
 	return s
+}
+
+// loadNodesFromConfig загружает узлы из конфигурационного файла
+func (s *SimpleScheduler) loadNodesFromConfig(nodesConfig []types.NodeConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, nc := range nodesConfig {
+		node := &types.Node{
+			ID:       nc.ID,
+			Hostname: nc.Hostname,
+			IP:       nc.IP,
+			Status:   types.NodeStatusReady,
+			Resources: &types.NodeResources{
+				CPU:    nc.CPU,
+				Memory: nc.Memory,
+			},
+			Labels:   nc.Labels,
+			LastSeen: time.Now(),
+		}
+
+		// Если нет меток, создаем пустую карту
+		if node.Labels == nil {
+			node.Labels = make(map[string]string)
+		}
+
+		s.nodes[node.ID] = node
+		s.logger.Info("node loaded from config",
+			"node_id", node.ID,
+			"hostname", node.Hostname,
+			"cpu", node.Resources.CPU,
+			"memory", node.Resources.Memory)
+	}
 }
 
 // Stop -> Scheduler stop
@@ -141,67 +177,6 @@ func (s *SimpleScheduler) Stop() {
 		s.logger.Debug("all scheduler goroutines stopped gracefully")
 	case <-time.After(5 * time.Second):
 		s.logger.Warn("timeout waiting for scheduler goroutines to stop")
-	}
-}
-
-// Test nodes for development -> TODO !!! -> FOR TESTING
-func (s *SimpleScheduler) addTestNodes() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	testNodes := []*types.Node{
-		{
-			ID:       "node-1",
-			Hostname: "worker-1.local",
-			IP:       "192.168.1.101",
-			Status:   types.NodeStatusReady,
-			Resources: &types.NodeResources{
-				CPU:    4000,                    // 4 core
-				Memory: 16 * 1024 * 1024 * 1024, // 16 GB
-			},
-			Labels: map[string]string{
-				"region": "us-east",
-				"zone":   "a",
-				"disk":   "ssd",
-			},
-			LastSeen: time.Now(),
-		},
-		{
-			ID:       "node-2",
-			Hostname: "worker-2.local",
-			IP:       "192.168.1.102",
-			Status:   types.NodeStatusReady,
-			Resources: &types.NodeResources{
-				CPU:    8000,                    // 8 core
-				Memory: 32 * 1024 * 1024 * 1024, // 32 GB
-			},
-			Labels: map[string]string{
-				"region": "us-east",
-				"zone":   "b",
-				"disk":   "ssd",
-			},
-			LastSeen: time.Now(),
-		},
-		{
-			ID:       "node-3",
-			Hostname: "worker-3.local",
-			IP:       "192.168.1.103",
-			Status:   types.NodeStatusReady,
-			Resources: &types.NodeResources{
-				CPU:    2000,                   // 2 core
-				Memory: 8 * 1024 * 1024 * 1024, // 8 GB
-			},
-			Labels: map[string]string{
-				"region": "eu-west",
-				"zone":   "a",
-				"disk":   "hdd",
-			},
-			LastSeen: time.Now(),
-		},
-	}
-
-	for _, node := range testNodes {
-		s.nodes[node.ID] = node
 	}
 }
 

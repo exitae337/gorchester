@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/exitae337/gorchester/internal/types"
 )
@@ -220,9 +221,22 @@ func (s *SimpleScheduler) isNodePreferred(node *types.Node, task *types.Task) bo
 }
 
 func (s *SimpleScheduler) getNodeTasks(nodeID string) []*types.Task {
-	// TODO: дописать данную функцию после того как появится связь с taskStore
-	// пока вернем пустой slice
-	return []*types.Task{}
+	if s.taskStore == nil {
+		return []*types.Task{}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tasks, err := s.taskStore.ListByNodeID(ctx, nodeID)
+	if err != nil {
+		s.logger.Debug("failed to get node tasks",
+			"node_id", nodeID,
+			"error", err)
+		return []*types.Task{}
+	}
+
+	return tasks
 }
 
 func contains(slice []string, item string) bool {

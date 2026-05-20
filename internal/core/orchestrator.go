@@ -112,6 +112,9 @@ type Orchestrator struct {
 
 	metricsCollector *metrics.MetricsCollector
 	metricsStore     *metrics.MetricsStore
+
+	lastScaleTime map[string]time.Time
+	scaleMu       sync.Mutex
 }
 
 // New Orchestartor -> Constructor
@@ -137,6 +140,7 @@ func New(
 		logger:           logger.With("component", "orchestrator"),
 		metricsCollector: metricsCollector,
 		metricsStore:     metrics.NewMetricsStore(1000),
+		lastScaleTime:    make(map[string]time.Time),
 	}
 }
 
@@ -201,6 +205,11 @@ func (o *Orchestrator) Stop() error {
 
 	o.isRunning = false
 	return nil
+}
+
+// GetMetricsStore -> return store for API
+func (o *Orchestrator) GetMetricsStore() *metrics.MetricsStore {
+	return o.metricsStore
 }
 
 // Start services by init app Config
@@ -950,7 +959,7 @@ func (o *Orchestrator) applyPredictiveScaling(ctx context.Context, service *type
 		o.logger.Debug("insufficient metrics history for prediction",
 			"service", service.ServiceName,
 			"data_points", len(metricsHistory))
-		return // нужно минимум 5 точек для предсказания
+		return // 5 points min
 	}
 
 	// Текущие метрики (за последнюю минуту)
@@ -979,13 +988,10 @@ func (o *Orchestrator) applyPredictiveScaling(ctx context.Context, service *type
 		"min_replicas", service.ScalePolicy.MinReplicas,
 		"max_replicas", service.ScalePolicy.MaxReplicas)
 
-	// Проверяем необходимость масштабирования ВВЕРХ
 	needScaleUp := o.checkScaleUpConditions(currentMetrics, predictedCPU, predictedMem, config, service)
 
-	// Проверяем необходимость масштабирования ВНИЗ
 	needScaleDown := o.checkScaleDownConditions(currentMetrics, predictedCPU, predictedMem, config, service)
 
-	// Применяем масштабирование
 	if needScaleUp {
 		o.performScaleUp(ctx, service, currentMetrics, predictedCPU, predictedMem)
 	} else if needScaleDown {
@@ -1045,13 +1051,19 @@ func (o *Orchestrator) checkScaleDownConditions(
 	config *types.PredictiveScalingConfig,
 	service *types.ServiceConfig,
 ) bool {
-	// Уже на минимуме
 	if service.Replicas <= service.ScalePolicy.MinReplicas {
 		return false
 	}
 
-	// Все метрики должны быть ниже порога снижения
-	scaleDownThreshold := 0.5 // 50% от целевого порога
+	if currentMetrics.AvgCPUPercent < 1.0 && predictedCPU < 1.0 {
+		o.logger.Debug("scale down prevented: cpu near zero, service may be idle",
+			"service", service.ServiceName,
+			"current_cpu", fmt.Sprintf("%.2f%%", currentMetrics.AvgCPUPercent),
+			"predicted_cpu", fmt.Sprintf("%.2f%%", predictedCPU))
+		return false
+	}
+
+	scaleDownThreshold := 0.5
 
 	cpuBelowThreshold := currentMetrics.AvgCPUPercent < config.CPUThreshold*scaleDownThreshold &&
 		predictedCPU < config.CPUThreshold*scaleDownThreshold
@@ -1079,19 +1091,33 @@ func (o *Orchestrator) performScaleUp(
 	metrics *types.ServiceMetrics,
 	predictedCPU, predictedMem float64,
 ) {
-	// Определяем, насколько агрессивно масштабировать
-	scaleFactor := o.calculateScaleFactor(metrics, predictedCPU, predictedMem, service)
+	// Проверяем cooldown
+	o.scaleMu.Lock()
+	lastTime, exists := o.lastScaleTime[service.ServiceName]
+	if exists {
+		cooldownDuration := time.Duration(service.ScalePolicy.CooldownSeconds) * time.Second
+		if time.Since(lastTime) < cooldownDuration {
+			o.logger.Debug("scale up skipped: cooldown period",
+				"service", service.ServiceName,
+				"last_scale", lastTime,
+				"cooldown", cooldownDuration)
+			o.scaleMu.Unlock()
+			return
+		}
+	}
+	o.lastScaleTime[service.ServiceName] = time.Now()
+	o.scaleMu.Unlock()
 
+	scaleFactor := o.calculateScaleFactor(metrics, predictedCPU, predictedMem, service)
 	currentReplicas := service.Replicas
 	newReplicas := currentReplicas + scaleFactor
 
-	// Не превышаем максимум
 	if newReplicas > service.ScalePolicy.MaxReplicas {
 		newReplicas = service.ScalePolicy.MaxReplicas
 	}
 
 	if newReplicas == currentReplicas {
-		return // нечего масштабировать
+		return
 	}
 
 	o.logger.Info("predictive scale up triggered",
@@ -1106,7 +1132,6 @@ func (o *Orchestrator) performScaleUp(
 
 	service.Replicas = newReplicas
 
-	// Создаём недостающие задачи
 	for i := 0; i < scaleFactor; i++ {
 		if err := o.createServiceTask(ctx, service); err != nil {
 			o.logger.Error("failed to create task during predictive scale up",
@@ -1118,16 +1143,31 @@ func (o *Orchestrator) performScaleUp(
 	}
 }
 
-// performScaleDown выполняет масштабирование вниз
+// Scale down
 func (o *Orchestrator) performScaleDown(
 	ctx context.Context,
 	service *types.ServiceConfig,
 	metrics *types.ServiceMetrics,
 	predictedCPU, predictedMem float64,
 ) {
-	currentReplicas := service.Replicas
+	// Проверяем cooldown
+	o.scaleMu.Lock()
+	lastTime, exists := o.lastScaleTime[service.ServiceName]
+	if exists {
+		cooldownDuration := time.Duration(service.ScalePolicy.CooldownSeconds) * time.Second
+		if time.Since(lastTime) < cooldownDuration {
+			o.logger.Debug("scale down skipped: cooldown period",
+				"service", service.ServiceName,
+				"last_scale", lastTime,
+				"cooldown", cooldownDuration)
+			o.scaleMu.Unlock()
+			return
+		}
+	}
+	o.lastScaleTime[service.ServiceName] = time.Now()
+	o.scaleMu.Unlock()
 
-	// Масштабируем вниз на 1 реплику за раз (консервативно)
+	currentReplicas := service.Replicas
 	newReplicas := currentReplicas - 1
 
 	if newReplicas < service.ScalePolicy.MinReplicas {
@@ -1149,7 +1189,6 @@ func (o *Orchestrator) performScaleDown(
 
 	service.Replicas = newReplicas
 
-	// Используем существующий scaleDownService для остановки одной задачи
 	tasks, err := o.taskStore.ListByService(ctx, service.ServiceName)
 	if err != nil {
 		o.logger.Error("failed to list tasks for scale down", "error", err)

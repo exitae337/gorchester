@@ -79,6 +79,7 @@ type OchestratorConfig struct {
 	DataDir     string          `yaml:"data_dir" env-default:"./orchestrator-data"` // Local data of Orchestrator
 	ClusterName string          `yaml:"cluster_name" env-default:"default-name"`    // Name of the Cluster
 	Services    []ServiceConfig `yaml:"services"`                                   // Services for orchestration
+	Nodes       []NodeConfig    `yaml:"nodes"`                                      // Nodes from cfg
 }
 
 // TODO: comments

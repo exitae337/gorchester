@@ -3,6 +3,37 @@ listen_addr: ":8080"
 data_dir: "./test-data"
 cluster_name: "dev-cluster"
 
+nodes:
+  - id: "node-1"
+    hostname: "worker-1.local"
+    ip: "192.168.1.101"
+    cpu: 4000          # 4 ядра в миллиядрах
+    memory: 17179869184  # 16 GB в байтах
+    labels:
+      region: "us-east"
+      zone: "a"
+      disk: "ssd"
+
+  - id: "node-2"
+    hostname: "worker-2.local"
+    ip: "192.168.1.102"
+    cpu: 8000          # 8 ядер
+    memory: 34359738368  # 32 GB
+    labels:
+      region: "us-east"
+      zone: "b"
+      disk: "ssd"
+
+  - id: "node-3"
+    hostname: "worker-3.local"
+    ip: "192.168.1.103"
+    cpu: 2000          # 2 ядра
+    memory: 8589934592   # 8 GB
+    labels:
+      region: "eu-west"
+      zone: "a"
+      disk: "hdd"
+
 services:
   - service_name: "test-web"
     image: "nginx:alpine"
