@@ -83,6 +83,13 @@ func main() {
 		logger.Error("failed to stop orchestartor", slog.Any("error", err))
 	}
 
+	// Stop scheduler
+	sched.Stop()
+
+	if err := dockerClient.Close(); err != nil {
+		logger.Error("failed to close docker client", slog.Any("error", err))
+	}
+
 	logger.Info("orchestrator stopped")
 }
 

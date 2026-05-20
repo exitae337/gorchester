@@ -60,10 +60,8 @@ func (mem *MemoryTaskStore) Create(ctx context.Context, task *types.Task) error 
 		task.UpdatedAt = time.Now()
 	}
 
-	mem.tasks[task.ID] = task
-
-	mem.updateIndices(task)
-
+	mem.tasks[task.ID] = task.DeepCopy()
+	mem.updateIndices(mem.tasks[task.ID])
 	return nil
 }
 
@@ -89,9 +87,8 @@ func (mem *MemoryTaskStore) Update(ctx context.Context, task *types.Task) error 
 	if task == nil {
 		return fmt.Errorf("task can't be nil for updating")
 	}
-
 	if task.ID == "" {
-		return fmt.Errorf("task ID can't be nil while updating")
+		return fmt.Errorf("task ID can't be nil for updating")
 	}
 
 	mem.mu.Lock()
@@ -104,15 +101,14 @@ func (mem *MemoryTaskStore) Update(ctx context.Context, task *types.Task) error 
 
 	task.UpdatedAt = time.Now()
 
-	// New indexes
 	oldContainerID := existing.ContainerID
 	oldNodeID := existing.NodeID
 	oldServiceName := existing.ServiceName
 	oldStatus := existing.Status
 
-	mem.tasks[task.ID] = task
+	mem.tasks[task.ID] = task.DeepCopy()
 
-	mem.updateIndicesWithOldValues(task, oldContainerID, oldNodeID, oldServiceName, oldStatus)
+	mem.updateIndicesWithOldValues(mem.tasks[task.ID], oldContainerID, oldNodeID, oldServiceName, oldStatus)
 
 	return nil
 }
@@ -325,9 +321,9 @@ func (mem *MemoryTaskStore) UpdateMany(ctx context.Context, tasks []types.Task) 
 		oldStatus := existing.Status
 
 		task.UpdatedAt = time.Now()
-		mem.tasks[task.ID] = task
+		mem.tasks[task.ID] = task.DeepCopy()
 
-		mem.updateIndicesWithOldValues(task, oldContainerID, oldNodeID, oldServiceName, oldStatus)
+		mem.updateIndicesWithOldValues(mem.tasks[task.ID], oldContainerID, oldNodeID, oldServiceName, oldStatus)
 	}
 
 	return nil

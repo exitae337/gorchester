@@ -61,18 +61,20 @@ func (dc *DockerClient) CreateContainer(ctx context.Context, service *types.Serv
 	ctx, cancel := context.WithTimeout(ctx, dc.timeout)
 	defer cancel()
 
+	logger.Debug("CreateContainer: checking if image exists", "image", service.Image)
 	if exists, err := dc.imageExists(ctx, service.Image); err != nil {
+		logger.Error("CreateContainer: failed to check image", "error", err)
 		return "", fmt.Errorf("%s: failed to check image locally: %w", op, err)
 	} else if !exists {
+		logger.Info("CreateContainer: image not found locally, pulling", "image", service.Image)
 		if err := dc.PullImage(ctx, service.Image, logger); err != nil {
+			logger.Error("CreateContainer: failed to pull image", "error", err)
 			return "", fmt.Errorf("%s: failed to download image: %w", op, err)
 		}
 	}
 
-	// Logger message
-	logger.Info("image downloaded successfully", slog.String("operation", op), slog.String("image", service.Image))
+	logger.Debug("CreateContainer: image ready, creating container")
 
-	// Make configuration
 	containerConfig := &container.Config{
 		Image:        service.Image,
 		Env:          convertEnvVars(service.Env),
@@ -85,7 +87,6 @@ func (dc *DockerClient) CreateContainer(ctx context.Context, service *types.Serv
 		},
 	}
 
-	// Host configuration
 	hostConfig := &container.HostConfig{
 		PortBindings:  createPortBindings(service.Ports),
 		RestartPolicy: getRestartPolicy(service.RestartPolicy),
@@ -101,28 +102,34 @@ func (dc *DockerClient) CreateContainer(ctx context.Context, service *types.Serv
 		ExtraHosts:  service.ExtraHosts,
 	}
 
-	// Make container
+	containerName := generateContainerName(service.ServiceName, taskID)
+	logger.Debug("CreateContainer: creating container", "name", containerName)
+
 	resp, err := dc.cli.ContainerCreate(
 		ctx,
 		containerConfig,
 		hostConfig,
 		nil,
-		nil, // Platform
-		generateContainerName(service.ServiceName, taskID),
+		nil,
+		containerName,
 	)
 
 	if err != nil {
+		logger.Error("CreateContainer: failed to create container", "error", err)
 		return "", fmt.Errorf("%s: error creating container: %w", op, err)
 	}
 
-	// Start container after creating
+	logger.Debug("CreateContainer: container created, starting", "container_id", resp.ID[:12])
+
 	if err := dc.StartContainer(ctx, resp.ID); err != nil {
+		logger.Error("CreateContainer: failed to start container, cleaning up", "error", err)
 		cleanUpCtx, cleanUpCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cleanUpCancel()                                                  // cancel cleanUpCtx
-		dc.cli.ContainerRemove(cleanUpCtx, resp.ID, container.RemoveOptions{}) // Remove container if error occurred
+		defer cleanUpCancel()
+		dc.cli.ContainerRemove(cleanUpCtx, resp.ID, container.RemoveOptions{})
 		return "", fmt.Errorf("%s: failed to start container: %w", op, err)
 	}
 
+	logger.Info("CreateContainer: container started successfully", "container_id", resp.ID[:12])
 	return resp.ID, nil
 }
 
@@ -330,9 +337,17 @@ func (dc *DockerClient) checkHealthByHTTP(ctx context.Context, containerID strin
 func (dc *DockerClient) checkHealthByTCP(ctx context.Context, containerID string, healthCheck *types.HealthCheck) (bool, error) {
 	const op = "client.checkHealthByTCP"
 
-	// Use BASH for TCP check
-	cmd := fmt.Sprintf("timeout %d bash -c 'echo > /dev/tcp/localhost/%d' 2>/dev/null",
-		int(healthCheck.Timeout.Seconds()), healthCheck.Port)
+	timeoutSec := int(healthCheck.Timeout.Seconds())
+	if timeoutSec < 1 {
+		timeoutSec = 5
+	}
+
+	// sh: for Alpine and Debian
+	cmd := fmt.Sprintf(
+		"sh -c 'timeout %d sh -c \"echo > /dev/tcp/localhost/%d\" 2>/dev/null'",
+		timeoutSec,
+		healthCheck.Port,
+	)
 
 	execConfig := types.ExecConfig{
 		Cmd:          []string{"sh", "-c", cmd},
@@ -346,7 +361,8 @@ func (dc *DockerClient) checkHealthByTCP(ctx context.Context, containerID string
 	}
 
 	if exitCode != 0 {
-		return false, fmt.Errorf("TCP Health Check failed: %s, %d, %d, output: %s", containerID, healthCheck.Port, exitCode, output)
+		return false, fmt.Errorf("TCP Health Check failed: %s, port %d, exit %d, output: %s",
+			containerID[:12], healthCheck.Port, exitCode, output)
 	}
 
 	return true, nil

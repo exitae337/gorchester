@@ -110,16 +110,38 @@ func New(config *SchedulerConfig, logger *slog.Logger) *SimpleScheduler {
 
 // Stop -> Scheduler stop
 func (s *SimpleScheduler) Stop() {
+	// Шаг 1: собрать все cancel функции под блокировкой
 	s.heartbeatMu.Lock()
+	cancels := make([]context.CancelFunc, 0, len(s.heartbeatWorkers))
 	for nodeID, cancel := range s.heartbeatWorkers {
-		cancel()
-		s.logger.Debug("heartbeat worker cancelled", "node_id", nodeID)
-		delete(s.heartbeatWorkers, nodeID)
+		cancels = append(cancels, cancel)
+		s.logger.Debug("heartbeat worker cancelling", "node_id", nodeID)
 	}
+	// Очистить map
+	s.heartbeatWorkers = make(map[string]context.CancelFunc)
 	s.heartbeatMu.Unlock()
 
+	// Шаг 2: отменить все контексты (вне блокировки)
+	for _, cancel := range cancels {
+		cancel()
+	}
+
+	// Шаг 3: отменить родительский контекст
 	s.cancel()
-	s.wg.Wait()
+
+	// Шаг 4: ждать завершения горутин с таймаутом
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		s.logger.Debug("all scheduler goroutines stopped gracefully")
+	case <-time.After(5 * time.Second):
+		s.logger.Warn("timeout waiting for scheduler goroutines to stop")
+	}
 }
 
 // Test nodes for development -> TODO !!! -> FOR TESTING

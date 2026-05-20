@@ -153,7 +153,7 @@ func (o *Orchestrator) Start() error {
 	o.isRunning = true
 
 	// Background cycles
-	o.wg.Add(4)
+	o.wg.Add(3)
 	go o.healthCheckLoop()
 	go o.reconcileLoop()
 	go o.cleanUpLoop()
@@ -183,10 +183,9 @@ func (o *Orchestrator) Stop() error {
 		return nil
 	}
 
-	o.logger.Info("stopping orchestartor...")
+	o.logger.Info("stopping orchestrator...")
 	o.cancel()
 
-	// Waiting for stopping by timeout
 	done := make(chan struct{})
 	go func() {
 		o.wg.Wait()
@@ -195,9 +194,9 @@ func (o *Orchestrator) Stop() error {
 
 	select {
 	case <-done:
-		o.logger.Info("orchestrator stopped gracefully!")
+		o.logger.Info("orchestrator stopped gracefully")
 	case <-time.After(30 * time.Second):
-		o.logger.Warn("orchestrtor stopping time is out")
+		o.logger.Warn("orchestrator stopping timed out after 30s")
 	}
 
 	o.isRunning = false
@@ -240,25 +239,43 @@ func (o *Orchestrator) collectMetrics(ctx context.Context) {
 		return
 	}
 
+	o.logger.Debug("collectMetrics: found running tasks", "count", len(tasks))
+
+	if len(tasks) == 0 {
+		o.logger.Warn("collectMetrics: no running tasks found - metrics collection skipped")
+		return
+	}
+
 	serviceMetrics := make(map[string]*types.ServiceMetrics)
+	collectedCount := 0
+	failedCount := 0
 
 	for _, task := range tasks {
 		if task.ContainerID == "" {
+			o.logger.Debug("collectMetrics: task has no ContainerID", "task_id", task.ID)
 			continue
 		}
 
-		metrics, err := o.metricsCollector.CollectContainerMetrics(ctx, task.ContainerID)
+		o.logger.Debug("collectMetrics: collecting from container",
+			"task_id", task.ID,
+			"container_id", task.ContainerID[:12])
+
+		metric, err := o.metricsCollector.CollectContainerMetrics(ctx, task.ContainerID)
 		if err != nil {
-			o.logger.Debug("failed to collect metrics", "task_id", task.ID, "error", err)
+			o.logger.Error("collectMetrics: failed to collect",
+				"task_id", task.ID,
+				"container_id", task.ContainerID[:12],
+				"error", err)
+			failedCount++
 			continue
 		}
 
-		metrics.TaskID = task.ID
-		metrics.ServiceName = task.ServiceName
+		metric.TaskID = task.ID
+		metric.ServiceName = task.ServiceName
+		o.metricsStore.StoreMetrics(metric)
+		collectedCount++
 
-		o.metricsStore.StoreMetrics(metrics)
-
-		// Агрегируем по сервисам
+		// Агрегация по сервисам (твой существующий код)
 		if _, exists := serviceMetrics[task.ServiceName]; !exists {
 			serviceMetrics[task.ServiceName] = &types.ServiceMetrics{
 				ServiceName: task.ServiceName,
@@ -266,18 +283,22 @@ func (o *Orchestrator) collectMetrics(ctx context.Context) {
 			}
 		}
 		sm := serviceMetrics[task.ServiceName]
-		sm.AvgCPUPercent += metrics.CPUPercent
-		sm.AvgMemoryPercent += metrics.MemoryPercent
+		sm.AvgCPUPercent += metric.CPUPercent
+		sm.AvgMemoryPercent += metric.MemoryPercent
 		sm.TotalContainers++
 	}
 
-	// Усредняем
+	o.logger.Info("collectMetrics completed",
+		"collected", collectedCount,
+		"failed", failedCount,
+		"total_tasks", len(tasks))
+
+	// Усреднение (твой существующий код)
 	for _, sm := range serviceMetrics {
 		if sm.TotalContainers > 0 {
 			sm.AvgCPUPercent /= float64(sm.TotalContainers)
 			sm.AvgMemoryPercent /= float64(sm.TotalContainers)
 		}
-
 		o.logger.Debug("service metrics",
 			"service", sm.ServiceName,
 			"avg_cpu", fmt.Sprintf("%.2f%%", sm.AvgCPUPercent),
@@ -346,8 +367,6 @@ func (o *Orchestrator) createServiceTask(ctx context.Context, service *types.Ser
 
 // executeTask do Task -> make docker container
 func (o *Orchestrator) executeTask(task *types.Task) {
-	// Используем отдельный контекст для этой операции, но привязываем к общему o.ctx (при остановке оркестратора, все
-	// опреации дожны прерываться) -> ctx.cancel() -> stopping all containers
 	ctx, cancel := context.WithCancel(o.ctx)
 	defer cancel()
 
@@ -356,55 +375,68 @@ func (o *Orchestrator) executeTask(task *types.Task) {
 		"service", task.ServiceName,
 	)
 
-	taskLogger.Info("executing task")
+	taskLogger.Info("executeTask: starting execution")
 
-	// 1. Update status on Starting
+	// 1. Update status to Starting
 	task.Status = types.TaskStatusStarting
 	if err := o.taskStore.Update(ctx, task); err != nil {
-		taskLogger.Error("failed to update task status to starting", "error", err)
-		// Not critical
+		taskLogger.Error("executeTask: failed to update status to starting", "error", err)
 	}
 
-	// 2. Make Container by DockerClient
+	// 2. Check if ServiceConfig is nil
+	if task.ServiceConfig == nil {
+		taskLogger.Error("executeTask: ServiceConfig is nil - cannot create container")
+		task.Status = types.TaskStatusFailed
+		task.Error = "ServiceConfig is nil"
+		now := time.Now()
+		task.FinishedAt = &now
+		o.taskStore.Update(ctx, task)
+		return
+	}
+
+	taskLogger.Debug("executeTask: creating container",
+		"image", task.ServiceConfig.Image,
+		"node", task.NodeID)
+
+	// 3. Create Container
 	containerID, err := o.dockerClient.CreateContainer(
 		ctx,
 		task.ServiceConfig,
 		task.ID,
-		taskLogger, // <- Logger with Task context
+		taskLogger,
 	)
 
 	if err != nil {
-		taskLogger.Error("failed to create/start container", "error", err)
-		// if error -> status failed
+		taskLogger.Error("executeTask: failed to create/start container", "error", err)
 		task.Status = types.TaskStatusFailed
 		task.Error = err.Error()
 		now := time.Now()
 		task.FinishedAt = &now
 
-		if updaterErr := o.taskStore.Update(ctx, task); updaterErr != nil {
-			taskLogger.Error("failed to update task status to failed", "error", updaterErr)
+		if updateErr := o.taskStore.Update(ctx, task); updateErr != nil {
+			taskLogger.Error("executeTask: failed to update task status to failed", "error", updateErr)
 		}
 
 		o.scheduler.ReleaseNodeResources(ctx, task.NodeID, task)
 		return
 	}
 
-	// 3. ALL OK -> Update Task
+	// 4. Success - update task
 	task.ContainerID = containerID
 	task.Status = types.TaskStatusRunning
 	now := time.Now()
 	task.StartedAt = &now
 
 	if err := o.taskStore.Update(ctx, task); err != nil {
-		taskLogger.Error("failed to update task status to running", "error", err)
-		// CRITICAL -> try to Stop container
+		taskLogger.Error("executeTask: failed to update status to running - rolling back", "error", err)
+		// Rollback: stop and remove container
 		o.dockerClient.StopContainer(ctx, containerID)
 		o.dockerClient.RemoveContainer(ctx, containerID)
 		o.scheduler.ReleaseNodeResources(ctx, task.NodeID, task)
 		return
 	}
 
-	taskLogger.Info("container started successfully", "container_id", containerID[:12])
+	taskLogger.Info("executeTask: container started successfully", "container_id", containerID[:12])
 }
 
 // reconcileLoop -> start reconcile
@@ -1262,25 +1294,41 @@ func (o *Orchestrator) checkHealth() {
 
 	tasks, err := o.taskStore.ListByStatus(ctx, types.TaskStatusRunning)
 	if err != nil {
-		o.logger.Error("failed to list running tasks", "error", err)
+		o.logger.Error("failed to list running tasks for health check", "error", err)
 		return
 	}
 
+	o.logger.Debug("checkHealth: found running tasks", "count", len(tasks))
+
+	if len(tasks) == 0 {
+		o.logger.Warn("checkHealth: no running tasks found - health check skipped")
+		return
+	}
+
+	checkedCount := 0
+	unhealthyCount := 0
+	errorCount := 0
+
 	for _, task := range tasks {
+		// Пропускаем задачи без конфигурации health check
 		if task.ServiceConfig == nil || task.ServiceConfig.HealthCheck == nil {
+			o.logger.Debug("checkHealth: task has no health check config", "task_id", task.ID)
 			continue
 		}
 
-		// Сначала проверяем статус контейнера
+		// Проверяем статус контейнера
 		status, err := o.dockerClient.GetConatinerStatus(ctx, task.ContainerID)
 		if err != nil {
-			o.logger.Error("failed to get container status", "task_id", task.ID, "error", err)
+			o.logger.Error("checkHealth: failed to get container status",
+				"task_id", task.ID,
+				"container_id", task.ContainerID[:12],
+				"error", err)
+			errorCount++
 			continue
 		}
 
-		// Если контейнер не запущен, помечаем как failed
 		if status != "running" && status != "running_healthy" && status != "starting" {
-			o.logger.Warn("container not running",
+			o.logger.Warn("checkHealth: container not running",
 				"task_id", task.ID,
 				"status", status)
 
@@ -1292,18 +1340,24 @@ func (o *Orchestrator) checkHealth() {
 			if task.NodeID != "" {
 				o.scheduler.ReleaseNodeResources(ctx, task.NodeID, task)
 			}
+			unhealthyCount++
 			continue
 		}
 
-		// Проверяем health через специальную функцию
+		// Проверяем health
 		healthy, err := o.dockerClient.CheckContainerHealth(ctx, task.ContainerID, task.ServiceConfig.HealthCheck)
 		if err != nil {
-			o.logger.Error("health check error", "task_id", task.ID, "error", err)
+			o.logger.Error("checkHealth: health check error",
+				"task_id", task.ID,
+				"error", err)
+			errorCount++
 			continue
 		}
 
+		checkedCount++
+
 		if !healthy {
-			o.logger.Warn("container unhealthy",
+			o.logger.Warn("checkHealth: container unhealthy",
 				"task_id", task.ID,
 				"service", task.ServiceName)
 
@@ -1315,10 +1369,15 @@ func (o *Orchestrator) checkHealth() {
 			if task.NodeID != "" {
 				o.scheduler.ReleaseNodeResources(ctx, task.NodeID, task)
 			}
+			unhealthyCount++
 		}
 	}
 
-	o.logger.Debug("health check completed", "checked_count", len(tasks))
+	o.logger.Info("checkHealth completed",
+		"total_running", len(tasks),
+		"checked", checkedCount,
+		"unhealthy", unhealthyCount,
+		"errors", errorCount)
 }
 
 // cleanUpLoop

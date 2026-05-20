@@ -76,8 +76,8 @@ services:
         cpu_threshold: 70.0
         memory_threshold: 80.0
     health_check:
-      type: "tcp"
-      port: 6379
+      type: "command"
+      command: ["redis-cli", "-p", "6379", "ping"]
       interval: "15s"
       timeout: "5s"
       retries: 3
