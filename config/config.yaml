@@ -1,121 +1,69 @@
 env: "local"
 listen_addr: ":8080"
 data_dir: "./test-data"
-cluster_name: "dev-cluster"
+cluster_name: "stress-test"
 
 nodes:
   - id: "node-1"
     hostname: "worker-1.local"
     ip: "192.168.1.101"
-    cpu: 4000          # 4 ядра в миллиядрах
-    memory: 17179869184  # 16 GB в байтах
+    cpu: 4000
+    memory: 17179869184
     labels:
-      region: "us-east"
       zone: "a"
-      disk: "ssd"
-
   - id: "node-2"
     hostname: "worker-2.local"
     ip: "192.168.1.102"
-    cpu: 8000          # 8 ядер
-    memory: 34359738368  # 32 GB
+    cpu: 8000
+    memory: 34359738368
     labels:
-      region: "us-east"
       zone: "b"
-      disk: "ssd"
-
   - id: "node-3"
     hostname: "worker-3.local"
     ip: "192.168.1.103"
-    cpu: 2000          # 2 ядра
-    memory: 8589934592   # 8 GB
+    cpu: 2000
+    memory: 8589934592
     labels:
-      region: "eu-west"
       zone: "a"
-      disk: "hdd"
 
 services:
-  - service_name: "test-web"
-    image: "nginx:alpine"
-    service_type: "stateless"           # Тип сервиса для адаптивного планирования
-    replicas: 2
+  - service_name: "cpu-worker"
+    image: "alpine:latest"
+    service_type: "stateless"
+    replicas: 1
+    command:
+      - "sh"
+      - "-c"
+      - "while true; do echo 'scale=5000; a(1)*4' | bc -l > /dev/null; done"
     ports:
       - host_port: 0
-        container_port: 80
+        container_port: 8080
         protocol: "tcp"
     resources:
-      cpu_millicores: 200
+      cpu_millicores: 500
       memory_bytes: 134217728
-    # Правила размещения
-    scheduling_constraints:
-      affinity:
-        - type: "zone"
-          operator: "in"
-          values: ["a", "b"]             # Предпочитаем зоны a и b
-      anti_affinity:
-        - type: "zone"
-          operator: "in"
-          values: ["a"]                  # Но не размещаем все в зоне a
     scale_policy:
       min_replicas: 1
-      max_replicas: 6                   # Увеличил максимум для демонстрации масштабирования
-      target_cpu: 70.0
-      target_memory: 80.0               # Добавил target_memory
-      cooldown_seconds: 60
-      # Предиктивное масштабирование
+      max_replicas: 6
+      target_cpu: 3.0
+      target_memory: 80.0
+      cooldown_seconds: 30
       predictive_scaling:
         enabled: true
-        lookback_window: 300            # Анализируем последние 5 минут
-        prediction_window: 60           # Предсказываем на 1 минуту вперёд
-        cpu_threshold: 75.0            # Порог CPU для предиктивного scale-up
-        memory_threshold: 85.0         # Порог Memory для предиктивного scale-up
-    health_check:
-      type: "http"
-      http_path: "/"
-      port: 80
-      interval: "10s"
-      timeout: "5s"
-      retries: 3
-
-  - service_name: "test-cache"
-    image: "redis:alpine"
-    service_type: "stateful"            # Stateful сервис - требует особого размещения
-    replicas: 1
-    ports:
-      - host_port: 6379
-        container_port: 6379
-        protocol: "tcp"
-    resources:
-      cpu_millicores: 100
-      memory_bytes: 67108864
-    # Stateful сервис должен быть распределён по зонам
-    scheduling_constraints:
-      anti_affinity:
-        - type: "zone"
-          operator: "in"
-          values: ["a", "b", "c"]      # Не размещаем в одной зоне
-    scale_policy:
-      min_replicas: 1
-      max_replicas: 3                   # Stateful сервисы сложнее масштабировать
-      target_cpu: 60.0
-      target_memory: 75.0
-      cooldown_seconds: 120             # Больше cooldown для stateful
-      predictive_scaling:
-        enabled: true
-        lookback_window: 600           # Дольше анализируем для stateful
-        prediction_window: 120
-        cpu_threshold: 70.0
-        memory_threshold: 80.0
+        lookback_window: 300
+        prediction_window: 60
+        cpu_threshold: 3.0
+        memory_threshold: 85.0
     health_check:
       type: "command"
-      command: ["redis-cli", "-p", "6379", "ping"]
-      interval: "15s"
+      command: ["echo", "healthy"]
+      interval: "30s"
       timeout: "5s"
-      retries: 3
+      retries: 2
 
   - service_name: "echo-service"
     image: "busybox:latest"
-    service_type: "daemon"              # Демон - одна задача на каждой ноде
+    service_type: "daemon"
     replicas: 1
     command:
       - "sh"
@@ -124,46 +72,15 @@ services:
     resources:
       cpu_millicores: 50
       memory_bytes: 33554432
-    # Демоны не должны удаляться с нод
     scale_policy:
       min_replicas: 1
-      max_replicas: 3                   # По одной на каждую ноду
+      max_replicas: 3
       target_cpu: 50.0
       target_memory: 50.0
-      cooldown_seconds: 300             # Демоны редко масштабируются
+      cooldown_seconds: 300
     health_check:
       type: "command"
       command: ["echo", "healthy"]
       interval: "30s"
       timeout: "5s"
       retries: 2
-
-  - service_name: "batch-worker"
-    image: "busybox:latest"
-    service_type: "batch"               # Batch-задачи оптимизируются по другому
-    replicas: 0                         # Не запускаем автоматически
-    command:
-      - "sh"
-      - "-c"
-      - "echo 'Processing batch job...' && sleep 600"
-    resources:
-      cpu_millicores: 100
-      memory_bytes: 67108864
-    scale_policy:
-      min_replicas: 0                   # Может быть 0 реплик
-      max_replicas: 5
-      target_cpu: 90.0                 # Batch задачи могут использовать больше CPU
-      target_memory: 90.0
-      cooldown_seconds: 60
-      predictive_scaling:
-        enabled: false                  # Batch не использует предиктивное масштабирование
-        lookback_window: 300
-        prediction_window: 60
-        cpu_threshold: 80.0
-        memory_threshold: 80.0
-    health_check:
-      type: "command"
-      command: ["pgrep", "-f", "batch-worker"]
-      interval: "30s"
-      timeout: "5s"
-      retries: 1

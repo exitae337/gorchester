@@ -42,16 +42,41 @@ func NewMetricsStore(maxSize int) *MetricsStore {
 	}
 }
 
-// Collect metrics for container by ID
 func (mc *MetricsCollector) CollectContainerMetrics(ctx context.Context, containerID string) (*types.ContainerMetric, error) {
-	stats, err := mc.dockerClient.ContainerStatsOneShot(ctx, containerID)
+	// Используем стриминговый режим с таймаутом 5 секунд
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	statsCh, err := mc.dockerClient.ContainerStats(ctx, containerID, false)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get container stats, containerID: %s", containerID)
+		return nil, fmt.Errorf("failed to get container stats stream, containerID: %s: %w", containerID, err)
+	}
+	defer statsCh.Body.Close()
+
+	decoder := json.NewDecoder(statsCh.Body)
+
+	// Читаем первый кадр
+	var preStats container.StatsResponse
+	if err := decoder.Decode(&preStats); err != nil {
+		return nil, fmt.Errorf("failed to decode first stats frame, containerID: %s: %w", containerID, err)
 	}
 
-	var dockerStats container.StatsResponse
-	if err := json.NewDecoder(stats.Body).Decode(&dockerStats); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON data from container, containerID: %s", containerID)
+	// Ждём второй кадр с таймаутом 3 секунды
+	var curStats container.StatsResponse
+	decodeDone := make(chan error, 1)
+	go func() {
+		decodeDone <- decoder.Decode(&curStats)
+	}()
+
+	select {
+	case <-ctx.Done():
+		// Контекст отменён — используем первый кадр как текущий
+		curStats = preStats
+	case err := <-decodeDone:
+		if err != nil {
+			// Ошибка декодирования — используем первый кадр
+			curStats = preStats
+		}
 	}
 
 	metrics := &types.ContainerMetric{
@@ -59,24 +84,27 @@ func (mc *MetricsCollector) CollectContainerMetrics(ctx context.Context, contain
 		Timestamp:   time.Now(),
 	}
 
-	// Cpu usage
-	cpuDelta := float64(dockerStats.CPUStats.CPUUsage.TotalUsage - dockerStats.PreCPUStats.CPUUsage.TotalUsage)
-	systemDelta := float64(dockerStats.CPUStats.SystemUsage - dockerStats.PreCPUStats.SystemUsage)
+	// CPU usage (разница между двумя кадрами)
+	cpuDelta := float64(curStats.CPUStats.CPUUsage.TotalUsage - preStats.PreCPUStats.CPUUsage.TotalUsage)
+	systemDelta := float64(curStats.CPUStats.SystemUsage - preStats.PreCPUStats.SystemUsage)
 
 	if systemDelta > 0 && cpuDelta > 0 {
-		cpuCores := float64(len(dockerStats.CPUStats.CPUUsage.PercpuUsage))
+		cpuCores := float64(len(curStats.CPUStats.CPUUsage.PercpuUsage))
+		if cpuCores == 0 {
+			cpuCores = 1
+		}
 		metrics.CPUPercent = (cpuDelta / systemDelta) * cpuCores * 100.0
 	}
 
 	// Memory usage
-	if dockerStats.MemoryStats.Limit > 0 {
-		metrics.MemoryUsage = int64(dockerStats.MemoryStats.Usage)
-		metrics.MemoryLimit = int64(dockerStats.MemoryStats.Limit)
-		metrics.MemoryPercent = float64(dockerStats.MemoryStats.Usage) / float64(dockerStats.MemoryStats.Limit) * 100.0
+	if curStats.MemoryStats.Limit > 0 {
+		metrics.MemoryUsage = int64(curStats.MemoryStats.Usage)
+		metrics.MemoryLimit = int64(curStats.MemoryStats.Limit)
+		metrics.MemoryPercent = float64(curStats.MemoryStats.Usage) / float64(curStats.MemoryStats.Limit) * 100.0
 	}
 
 	// Network metrics
-	for _, net := range dockerStats.Networks {
+	for _, net := range curStats.Networks {
 		metrics.NetworkRx += int64(net.RxBytes)
 		metrics.NetworkTx += int64(net.TxBytes)
 	}
