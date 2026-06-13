@@ -1,3 +1,5 @@
+// Package main. Валидация конфигурации перед запуском.
+// Для удобства тестирования и чтения конфигурации.
 package main
 
 import (
@@ -21,10 +23,10 @@ func main() {
 	// Load configuration using the new LoadConfig function
 	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
-		log.Fatalf("❌ Validation failed: %v", err)
+		log.Fatalf("Validation failed: %v", err)
 	}
 
-	fmt.Printf("✅ Configuration validation successful!\n")
+	fmt.Printf("Configuration validation successful!\n")
 	fmt.Printf("   File: %s\n", *configPath)
 	fmt.Printf("   Environment: %s\n", cfg.Env)
 	fmt.Printf("   Services: %d\n", len(cfg.Services))
@@ -45,14 +47,17 @@ func printConfigDetails(cfg *types.OchestratorConfig, format string) {
 	}
 }
 
+// Config-printing func -> all infornation about "system"
 func printConfigText(cfg *types.OchestratorConfig) {
-	fmt.Println("\n📋 Configuration Details:")
+	// Config
+	fmt.Println("\nConfiguration Details:")
 	fmt.Printf("Environment: %s\n", cfg.Env)
 	fmt.Printf("Listen Address: %s\n", cfg.ListenAddr)
 	fmt.Printf("Data Directory: %s\n", cfg.DataDir)
 	fmt.Printf("Cluster Name: %s\n", cfg.ClusterName)
 
-	fmt.Println("\n🚀 Services:")
+	// Services
+	fmt.Println("\nServices:")
 	for i, service := range cfg.Services {
 		fmt.Printf("\n  [%d] %s\n", i+1, service.ServiceName)
 		fmt.Printf("      Image: %s\n", service.Image)
@@ -63,7 +68,7 @@ func printConfigText(cfg *types.OchestratorConfig) {
 		fmt.Printf("      Memory: %d MB\n",
 			service.Resources.MemoryBytes/(1024*1024))
 
-		// Ports
+		// Open ports
 		if len(service.Ports) > 0 {
 			fmt.Printf("      Ports:\n")
 			for _, port := range service.Ports {
@@ -112,6 +117,7 @@ func printConfigText(cfg *types.OchestratorConfig) {
 	}
 }
 
+// For JSON
 func printConfigJSON(cfg *types.OchestratorConfig) {
 	jsonData, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -121,6 +127,7 @@ func printConfigJSON(cfg *types.OchestratorConfig) {
 	fmt.Println(string(jsonData))
 }
 
+// For YAML
 func printConfigYAML(cfg *types.OchestratorConfig) {
 	yamlData, err := yaml.Marshal(cfg)
 	if err != nil {

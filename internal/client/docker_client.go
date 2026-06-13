@@ -1,3 +1,5 @@
+// Package client. Пакет для работы с Docker API.
+// Реализация интерфейса из client.go.
 package client
 
 import (
@@ -17,19 +19,17 @@ import (
 	"github.com/exitae337/gorchester/internal/types"
 )
 
-// ContainerManager interface realization
-
 const (
 	defaultTimeout = 15 * time.Second
 )
 
-// Docker client
+// Docker client struct
 type DockerClient struct {
 	cli     *client.Client
 	timeout time.Duration
 }
 
-// New Docker Client -> docker API
+// New Docker Client
 func NewDockerClient() (*DockerClient, error) {
 	const op = "client.NewDockerClient"
 	cli, err := client.NewClientWithOpts(
@@ -133,25 +133,23 @@ func (dc *DockerClient) CreateContainer(ctx context.Context, service *types.Serv
 	return resp.ID, nil
 }
 
-// DisconnectFromNetwork отключает контейнер от всех сетей перед удалением
+// Disconnect container from network before Deleting
 func (dc *DockerClient) DisconnectFromNetwork(ctx context.Context, containerID string) error {
 	const op = "client.DisconnectFromNetwork"
 
 	ctx, cancel := context.WithTimeout(ctx, dc.timeout)
 	defer cancel()
 
-	// Получаем информацию о контейнере
+	// Get info about container
 	inspect, err := dc.cli.ContainerInspect(ctx, containerID)
 	if err != nil {
-		// Контейнер уже удален или не существует — не ошибка
 		return nil
 	}
 
-	// Отключаем от всех кастомных сетей
+	// Disconnect
 	for networkName := range inspect.NetworkSettings.Networks {
 		if networkName != "bridge" && networkName != "host" && networkName != "none" {
 			if err := dc.cli.NetworkDisconnect(ctx, networkName, containerID, true); err != nil {
-				// Логируем, но не считаем критической ошибкой
 				continue
 			}
 		}
@@ -181,7 +179,7 @@ func (dc *DockerClient) StopContainer(ctx context.Context, containerID string) e
 	ctx, cancel := context.WithTimeout(ctx, dc.timeout)
 	defer cancel()
 
-	timeout := 10 // Timeout to stop the Container in seconds
+	timeout := 10
 	if err := dc.cli.ContainerStop(ctx, containerID, container.StopOptions{
 		Timeout: &timeout,
 	}); err != nil {
@@ -212,7 +210,7 @@ func (dc *DockerClient) RemoveContainer(ctx context.Context, containerID string)
 func (dc *DockerClient) PullImage(ctx context.Context, im string, logger *slog.Logger) error {
 	const op = "client.PullImage"
 
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute) // Big timeout for downloading image: 5 minutes
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
 	reader, err := dc.cli.ImagePull(ctx, im, image.PullOptions{})
@@ -240,7 +238,7 @@ func (dc *DockerClient) PullImage(ctx context.Context, im string, logger *slog.L
 			return fmt.Errorf("%s: failed to parse json messages from PullImage: %w", op, err)
 		}
 
-		// Logging every 3 seconds
+		// Logging every 3 seconds about downloading process
 		if time.Since(lastLogTime) >= logInterval || msg.Status == "Download complete" {
 			logger.Info("downloading image", slog.String("status", msg.Status), slog.String("progress", msg.Progress))
 			lastLogTime = time.Now()
@@ -251,7 +249,7 @@ func (dc *DockerClient) PullImage(ctx context.Context, im string, logger *slog.L
 	return nil
 }
 
-// Close закрывает соединение с Docker daemon
+// Close connection with  Docker Daemon
 func (dc *DockerClient) Close() error {
 	const op = "client.Close"
 
@@ -296,7 +294,7 @@ func (dc *DockerClient) GetConatinerStatus(ctx context.Context, containerID stri
 	return "running", nil
 }
 
-// Check Container Health -> by client
+// Check Container Health
 func (dc *DockerClient) CheckContainerHealth(ctx context.Context, containerID string, healthOpts *types.HealthCheck) (bool, error) {
 	const op = "client.HealthCheck"
 
@@ -311,7 +309,7 @@ func (dc *DockerClient) CheckContainerHealth(ctx context.Context, containerID st
 	}
 
 	if !inspect.State.Running {
-		return false, nil // if not running -> false
+		return false, nil
 	}
 
 	switch healthOpts.Type {
@@ -326,7 +324,7 @@ func (dc *DockerClient) CheckContainerHealth(ctx context.Context, containerID st
 	}
 }
 
-// GetClient возвращает базового клиента Docker для метрик
+// Get Docker Client for collecting Metrics
 func (dc *DockerClient) GetClient() *client.Client {
 	return dc.cli
 }
@@ -338,7 +336,7 @@ func (dc *DockerClient) checkHealthByHTTP(ctx context.Context, containerID strin
 		return false, fmt.Errorf("%s: failed to inspect container -> %w", op, err)
 	}
 
-	// Make URL -> Check on host
+	// Make URL
 	url := fmt.Sprintf("http://localhost:%d%s", healthCheck.Port, healthCheck.HTTPPath)
 
 	execConfig := types.ExecConfig{
@@ -395,7 +393,7 @@ func (dc *DockerClient) checkHealthByTCP(ctx context.Context, containerID string
 	return true, nil
 }
 
-// Check Health by Command
+// Check Health by Command CMD
 func (dc *DockerClient) checkHealthByCommand(ctx context.Context, containerID string, healthCheck *types.HealthCheck) (bool, error) {
 	const op = "client.checkHealthByCMD"
 
@@ -435,7 +433,7 @@ func (dc *DockerClient) imageExists(ctx context.Context, image string) (bool, er
 	return true, nil
 }
 
-// exec in container func -> commands in Container
+// Exec in container func -> Run command in Container
 func (dc *DockerClient) execInContainer(ctx context.Context, containerID string, execConfig *types.ExecConfig) (int, string, error) {
 	const op = "client.ExecinContainer"
 	exec, err := dc.cli.ContainerExecCreate(ctx, containerID, container.ExecOptions{
@@ -467,7 +465,7 @@ func (dc *DockerClient) execInContainer(ctx context.Context, containerID string,
 	return inspectResp.ExitCode, string(output), nil
 }
 
-// Util funcs
+// ========= HELPERS =========
 
 func convertEnvVars(envVars []string) []string {
 	result := make([]string, 0, len(envVars))

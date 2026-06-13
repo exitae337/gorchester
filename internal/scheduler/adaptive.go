@@ -1,3 +1,5 @@
+// Package scheduler. adaptive.go -> файл описывающий функции для
+// реализации адаптивного механизма масштабирования.
 package scheduler
 
 import (
@@ -14,7 +16,6 @@ func (s *SimpleScheduler) SelectNodeAdaptive(ctx context.Context, task *types.Ta
 		return s.SelectNode(ctx, task, nodes)
 	}
 
-	// Применяем scheduling constraints если такие есть
 	if task.ServiceConfig.SchedulingConstraints != nil {
 		nodes = s.applyConstraints(nodes, task.ServiceConfig.SchedulingConstraints)
 		if len(nodes) == 0 {
@@ -22,7 +23,6 @@ func (s *SimpleScheduler) SelectNodeAdaptive(ctx context.Context, task *types.Ta
 		}
 	}
 
-	// Выбор ноды согласно установкам
 	switch task.ServiceConfig.ServiceType {
 	case types.ServiceTypeStateless:
 		return s.selectSpreadWithAffinity(nodes, task)
@@ -33,12 +33,11 @@ func (s *SimpleScheduler) SelectNodeAdaptive(ctx context.Context, task *types.Ta
 	case types.ServiceTypeDaemon:
 		return s.selectDaemonNode(nodes, task)
 	default:
-		// По умолчанию используем стратегию из конфигурации
 		return s.SelectNode(ctx, task, nodes)
 	}
 }
 
-// ApplyConstraints - фильтрует ноды согласно affinity/anti-affinity правилам
+// ApplyConstraints -> filter nodes by affinity / anti-affinity rules
 func (s *SimpleScheduler) applyConstraints(nodes []*types.Node, constraints *types.SchedulingConstraints) []*types.Node {
 	if constraints == nil {
 		return nodes
@@ -98,15 +97,13 @@ func (s *SimpleScheduler) nodeMatchesAntiAffinity(node *types.Node, rules []type
 	return true
 }
 
-// SelectSpreadWithAffinity - распределение с учетом affinity и равномерности
+// SelectSpreadWithAffinity -> distribution taking into account affinity and uniformity
 func (s *SimpleScheduler) selectSpreadWithAffinity(nodes []*types.Node, task *types.Task) (string, error) {
 	if len(nodes) == 0 {
 		return "", fmt.Errorf("no avaliable nodes for stateless service")
 	}
 
-	// Сортировка по TaskCount
 	sort.Slice(nodes, func(i, j int) bool {
-		// Приоритет имеют ноды в нужной зоне
 		iPreferred := s.isNodePreferred(nodes[i], task)
 		jPreferred := s.isNodePreferred(nodes[j], task)
 
@@ -120,7 +117,7 @@ func (s *SimpleScheduler) selectSpreadWithAffinity(nodes []*types.Node, task *ty
 	return nodes[0].ID, nil
 }
 
-// SelectStatefulNode - выбираем ноду для сервисов с состоянием (с anti-affinity)
+// SelectStatefulNode
 func (s *SimpleScheduler) selectStatefulNode(nodes []*types.Node, task *types.Task) (string, error) {
 	if len(nodes) == 0 {
 		return "", fmt.Errorf("no nodes avaliable for stateful service")
@@ -140,7 +137,6 @@ func (s *SimpleScheduler) selectStatefulNode(nodes []*types.Node, task *types.Ta
 	}
 	s.mu.RUnlock()
 
-	// Приоритет нодам в неиспользуемых зонах
 	sort.Slice(nodes, func(i, j int) bool {
 		iZone, _ := nodes[i].Labels["zone"]
 		jZone, _ := nodes[j].Labels["zone"]
@@ -149,40 +145,37 @@ func (s *SimpleScheduler) selectStatefulNode(nodes []*types.Node, task *types.Ta
 		jUsed := usedZones[jZone]
 
 		if iUsed != jUsed {
-			return !iUsed // в приоритете неиспользумые зоны
+			return !iUsed
 		}
 
-		// Выбираем менее загруженную если оба в одинаковом состоянии
 		return nodes[i].TaskCount < nodes[j].TaskCount
 	})
 
 	return nodes[0].ID, nil
 }
 
-// SelectBinpackForBatch - оптимизация для batch-задач
-func (s *SimpleScheduler) selectBinpackForBatch(nodes []*types.Node, task *types.Task) (string, error) {
+// SelectBinpackForBatch
+func (s *SimpleScheduler) selectBinpackForBatch(nodes []*types.Node, _ *types.Task) (string, error) {
 	if len(nodes) == 0 {
 		return "", fmt.Errorf("no nodes avaliable for batch-job")
 	}
 
-	// Для batch-задачи выбираем ноду с максимальной загрузкой, но с достаточными ресурсами
 	sort.Slice(nodes, func(i, j int) bool {
 		iCPUUtil := float64(nodes[i].UsedCPU) / float64(nodes[i].Resources.CPU)
 		jCPUUtil := float64(nodes[j].UsedCPU) / float64(nodes[j].Resources.CPU)
 
-		return iCPUUtil > jCPUUtil // более загруженные в приоритете
+		return iCPUUtil > jCPUUtil
 	})
 
 	return nodes[0].ID, nil
 }
 
-// SelectDaemon - для сервисов-демононов - по одному на ноду
+// SelectDaemon
 func (s *SimpleScheduler) selectDaemonNode(nodes []*types.Node, task *types.Task) (string, error) {
 	if len(nodes) == 0 {
 		return "", fmt.Errorf("no nodes avaliable for daemon service")
 	}
 
-	// Ищем подходящую ноду для деммон-сервиса
 	for _, node := range nodes {
 		hasDaemon := false
 		s.mu.RLock()
@@ -202,7 +195,8 @@ func (s *SimpleScheduler) selectDaemonNode(nodes []*types.Node, task *types.Task
 	return "", fmt.Errorf("daemon is already running on all nodes")
 }
 
-// Вспомогательные функции
+// ========= HELPERS =========
+
 func (s *SimpleScheduler) isNodePreferred(node *types.Node, task *types.Task) bool {
 	if task.ServiceConfig.SchedulingConstraints == nil {
 		return true

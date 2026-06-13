@@ -1,3 +1,5 @@
+// Package main. Точка входа.
+// Запуск и настройка оркестратора.
 package main
 
 import (
@@ -53,7 +55,7 @@ func main() {
 
 	logger.Info("scheduler created", "strategy", schedulerConfig.Strategy)
 
-	// MAKE ORCH
+	// Orchestrator object
 	orch := core.New(
 		cfg,
 		taskStore,
@@ -78,7 +80,7 @@ func main() {
 		}
 	}()
 
-	// Print info
+	// Print info about Orchestartor
 	printServiceStatus(context.Background(), orch, logger)
 
 	// Quit signal
@@ -104,7 +106,7 @@ func main() {
 }
 
 func printServiceStatus(ctx context.Context, orch *core.Orchestrator, logger *slog.Logger) {
-	// Ждем дольше - 10 секунд вместо 2
+	// Waiting -> printing info
 	time.Sleep(10 * time.Second)
 
 	tasks, err := orch.ListTasks(ctx)
@@ -120,7 +122,7 @@ func printServiceStatus(ctx context.Context, orch *core.Orchestrator, logger *sl
 
 	logger.Info("current tasks status")
 	for _, task := range tasks {
-		// Безопасное получение container ID
+		// Get Container ID
 		containerID := task.ContainerID
 		if containerID == "" {
 			containerID = "pending"
@@ -128,7 +130,7 @@ func printServiceStatus(ctx context.Context, orch *core.Orchestrator, logger *sl
 			containerID = containerID[:12]
 		}
 
-		// Безопасное получение task ID
+		// Get Task ID
 		taskID := task.ID
 		if len(taskID) > 8 {
 			taskID = taskID[:8]

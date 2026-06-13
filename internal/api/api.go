@@ -55,10 +55,14 @@ func (s *APIServer) registerRoutes() {
 	// Metrics
 	s.mux.HandleFunc("/api/v1/metrics", s.handleMetrics)
 
-	// Config
+	// Config strategy
 	s.mux.HandleFunc("/api/v1/config/strategy", s.handleStrategy)
+
+	// Change Node Status
+	s.mux.HandleFunc("/api/v1/nodes/", s.handleNodeStatusByPath)
 }
 
+// Start API Server
 func (s *APIServer) Start(addr string) error {
 	s.logger.Info("API server starting", "addr", addr)
 	return http.ListenAndServe(addr, s.mux)
@@ -125,7 +129,7 @@ func (s *APIServer) handleServiceByPath(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Parse path: /api/v1/services/{name} or /api/v1/services/{name}/scale
+	// Parse path: /api/v1/services/{name}
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/services/")
 	parts := strings.Split(path, "/")
 
@@ -135,12 +139,6 @@ func (s *APIServer) handleServiceByPath(w http.ResponseWriter, r *http.Request) 
 	}
 
 	serviceName := parts[0]
-
-	// Check if scale action
-	if len(parts) == 2 && parts[1] == "scale" && r.Method == http.MethodPost {
-		s.handleScaleService(w, r, serviceName)
-		return
-	}
 
 	// GET service info
 	ctx := context.Background()
@@ -175,15 +173,7 @@ func (s *APIServer) handleServiceByPath(w http.ResponseWriter, r *http.Request) 
 
 }
 
-func (s *APIServer) handleScaleService(w http.ResponseWriter, r *http.Request, serviceName string) {
-	// TODO: Implement manual scaling
-	writeJSON(w, http.StatusOK, map[string]string{
-		"status":  "not_implemented",
-		"message": "manual scaling via API is not yet implemented",
-	})
-}
-
-// Handle Nodes
+// Nodes Handler
 func (s *APIServer) handleNodes(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -218,6 +208,7 @@ func (s *APIServer) handleNodes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+// Tasks handler
 func (s *APIServer) handleTasks(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -251,7 +242,7 @@ func (s *APIServer) handleTasks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// Handle Metrics
+// Metrics Handler
 func (s *APIServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -273,7 +264,7 @@ func (s *APIServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 	result := make(map[string]interface{})
 	for name := range serviceNames {
-		metrics, err := s.metrics.GetServiceMetrics(name, 1*60*1000000000) // 1 minute in nanoseconds
+		metrics, err := s.metrics.GetServiceMetrics(name, 1*60*1000000000)
 		if err != nil {
 			continue
 		}
@@ -287,7 +278,56 @@ func (s *APIServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// Handle strategy
+// Change Node status Handler
+func (s *APIServer) handleNodeStatusByPath(w http.ResponseWriter, r *http.Request) {
+	// Parse path: /api/v1/nodes/{id}/drain or /api/v1/nodes/{id}/activate
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/nodes/")
+	parts := strings.Split(path, "/")
+
+	if len(parts) < 2 {
+		writeError(w, http.StatusBadRequest, "path must be /nodes/{id}/drain or /nodes/{id}/activate")
+		return
+	}
+
+	nodeID := parts[0]
+	action := parts[1]
+
+	if r.Method != http.MethodPut {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	ctx := context.Background()
+
+	switch action {
+	case "drain":
+		err := s.sched.UpdateNodeStatus(ctx, nodeID, types.NodeStatusDraining)
+		if err != nil {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":  "draining",
+			"node":    nodeID,
+			"message": "Node drained. Containers will be rescheduled on next reconcile.",
+		})
+	case "activate":
+		err := s.sched.UpdateNodeStatus(ctx, nodeID, types.NodeStatusReady)
+		if err != nil {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":  "ready",
+			"node":    nodeID,
+			"message": "Node reactivated. Ready for scheduling.",
+		})
+	default:
+		writeError(w, http.StatusBadRequest, "action must be 'drain' or 'activate'")
+	}
+}
+
+// Scaling Strategy Handler. TODO !!!
 func (s *APIServer) handleStrategy(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:

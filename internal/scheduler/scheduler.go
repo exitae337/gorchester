@@ -1,3 +1,4 @@
+// Package scheduler. Реализация самого планировщика.
 package scheduler
 
 import (
@@ -111,7 +112,7 @@ func New(config *SchedulerConfig, logger *slog.Logger, nodesConfig []types.NodeC
 	return s
 }
 
-// loadNodesFromConfig загружает узлы из конфигурационного файла
+// loadNodesFromConfig -> load nodes from config
 func (s *SimpleScheduler) loadNodesFromConfig(nodesConfig []types.NodeConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -130,7 +131,6 @@ func (s *SimpleScheduler) loadNodesFromConfig(nodesConfig []types.NodeConfig) {
 			LastSeen: time.Now(),
 		}
 
-		// Если нет меток, создаем пустую карту
 		if node.Labels == nil {
 			node.Labels = make(map[string]string)
 		}
@@ -146,26 +146,26 @@ func (s *SimpleScheduler) loadNodesFromConfig(nodesConfig []types.NodeConfig) {
 
 // Stop -> Scheduler stop
 func (s *SimpleScheduler) Stop() {
-	// Шаг 1: собрать все cancel функции под блокировкой
+	// 1: get all cancel funcs
 	s.heartbeatMu.Lock()
 	cancels := make([]context.CancelFunc, 0, len(s.heartbeatWorkers))
 	for nodeID, cancel := range s.heartbeatWorkers {
 		cancels = append(cancels, cancel)
 		s.logger.Debug("heartbeat worker cancelling", "node_id", nodeID)
 	}
-	// Очистить map
+	// Clear map
 	s.heartbeatWorkers = make(map[string]context.CancelFunc)
 	s.heartbeatMu.Unlock()
 
-	// Шаг 2: отменить все контексты (вне блокировки)
+	// 2: cancel on ctx without lock
 	for _, cancel := range cancels {
 		cancel()
 	}
 
-	// Шаг 3: отменить родительский контекст
+	// 3: cancel parent ctx
 	s.cancel()
 
-	// Шаг 4: ждать завершения горутин с таймаутом
+	// 4: waiting for goroutines with timeout
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
@@ -342,7 +342,7 @@ func (s *SimpleScheduler) selectRoundRobin(nodes []*types.Node, serviceName stri
 	return node, nil
 }
 
-// selectBinpack -> maximum load Node (чтобы максимально уплотнить задачи)
+// selectBinpack -> maximum load Node
 func (s *SimpleScheduler) selectBinpack(nodes []*types.Node, task *types.Task) (*types.Node, error) {
 	if len(nodes) == 0 {
 		return nil, errors.New("no nodes to select from")
@@ -374,7 +374,7 @@ func (s *SimpleScheduler) selectSpread(nodes []*types.Node) (*types.Node, error)
 		return nil, errors.New("no nodes to select from")
 	}
 
-	// Sort by Task count (меньше задач - приоритетнее)
+	// Sort by Task count
 	sort.Slice(nodes, func(i, j int) bool {
 		return nodes[i].TaskCount < nodes[j].TaskCount
 	})
@@ -396,7 +396,6 @@ func (s *SimpleScheduler) selectLeastResource(nodes []*types.Node, task *types.T
 	reqCPU := task.ServiceConfig.Resources.CPUMilliCores
 	reqMem := task.ServiceConfig.Resources.MemoryBytes
 
-	// Zero division problem
 	if reqCPU == 0 {
 		reqCPU = 1
 	}
@@ -638,6 +637,7 @@ func (s *SimpleScheduler) stopHeartbeatWorker(nodeID string) {
 	}
 }
 
+// Send heartbeat signal
 func (s *SimpleScheduler) sendHeartbeat(nodeID string) {
 	s.mu.RLock()
 	node, exists := s.nodes[nodeID]

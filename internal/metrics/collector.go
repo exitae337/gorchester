@@ -1,3 +1,4 @@
+// Package metrics. Пакет для сбора и обработки метрик.
 package metrics
 
 import (
@@ -19,7 +20,7 @@ type MetricsCollector struct {
 	stopCh       chan struct{}
 }
 
-// MetricsStore metrics history
+// MetricsStore -> metrics history
 type MetricsStore struct {
 	mu      sync.RWMutex
 	metrics map[string][]types.ContainerMetric // key: serviceName
@@ -43,7 +44,6 @@ func NewMetricsStore(maxSize int) *MetricsStore {
 }
 
 func (mc *MetricsCollector) CollectContainerMetrics(ctx context.Context, containerID string) (*types.ContainerMetric, error) {
-	// Используем стриминговый режим с таймаутом 5 секунд
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -55,13 +55,13 @@ func (mc *MetricsCollector) CollectContainerMetrics(ctx context.Context, contain
 
 	decoder := json.NewDecoder(statsCh.Body)
 
-	// Читаем первый кадр
+	// First record
 	var preStats container.StatsResponse
 	if err := decoder.Decode(&preStats); err != nil {
 		return nil, fmt.Errorf("failed to decode first stats frame, containerID: %s: %w", containerID, err)
 	}
 
-	// Ждём второй кадр с таймаутом 3 секунды
+	// Second Record
 	var curStats container.StatsResponse
 	decodeDone := make(chan error, 1)
 	go func() {
@@ -70,11 +70,9 @@ func (mc *MetricsCollector) CollectContainerMetrics(ctx context.Context, contain
 
 	select {
 	case <-ctx.Done():
-		// Контекст отменён — используем первый кадр как текущий
 		curStats = preStats
 	case err := <-decodeDone:
 		if err != nil {
-			// Ошибка декодирования — используем первый кадр
 			curStats = preStats
 		}
 	}
@@ -84,7 +82,7 @@ func (mc *MetricsCollector) CollectContainerMetrics(ctx context.Context, contain
 		Timestamp:   time.Now(),
 	}
 
-	// CPU usage (разница между двумя кадрами)
+	// CPU usage
 	cpuDelta := float64(curStats.CPUStats.CPUUsage.TotalUsage - preStats.PreCPUStats.CPUUsage.TotalUsage)
 	systemDelta := float64(curStats.CPUStats.SystemUsage - preStats.PreCPUStats.SystemUsage)
 

@@ -1,3 +1,4 @@
+// Package store. Интерфейс хранилища задач.
 package store
 
 import (

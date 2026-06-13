@@ -1,3 +1,6 @@
+// Package store. Реализация интерфейса хранилища задач.
+// Хранилище реализовано в оперативной памяти для легковесности и
+// быстроты доступа к задачам.
 package store
 
 import (
@@ -113,6 +116,7 @@ func (mem *MemoryTaskStore) Update(ctx context.Context, task *types.Task) error 
 	return nil
 }
 
+// Delete Task from Store
 func (mem *MemoryTaskStore) Delete(ctx context.Context, id string) error {
 	if id == "" {
 		return fmt.Errorf("id can't be empty while deleting")
@@ -374,7 +378,7 @@ func (mem *MemoryTaskStore) IncrementRestartCounter(ctx context.Context, id stri
 	return nil
 }
 
-// ========== UTIL FUNCS FOR INDEXES ==========
+// ========== UTIL FUNCS FOR INDEXES (HELPERS) ==========
 
 // updateIndices -> Update Indexes for Task
 func (s *MemoryTaskStore) updateIndices(task *types.Task) {

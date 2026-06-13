@@ -1,3 +1,6 @@
+// Package types. Определение типа "Задача".
+// Задача - единица работы оркестратора.
+// Также определены методы для работы с задачами.
 package types
 
 import (
@@ -6,7 +9,6 @@ import (
 
 // <--- TASK STRUCTS --->
 
-// Task -> Единица работы оркестратора - один запущенный контейнер.
 // The minimum value of orchestrator work -> Container = Task
 
 // Status type

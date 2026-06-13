@@ -1,3 +1,5 @@
+// Package core. Ядро оркестратора.
+// Вся работа и взаимодействие оркестратора с другими компонентами.
 package core
 
 import (
@@ -117,7 +119,7 @@ type Orchestrator struct {
 	scaleMu       sync.Mutex
 }
 
-// New Orchestartor -> Constructor
+// Orch constructor
 func New(
 	appConfig *types.OchestratorConfig,
 	taskStore TaskStore,
@@ -156,7 +158,7 @@ func (o *Orchestrator) Start() error {
 	o.ctx, o.cancel = context.WithCancel(context.Background())
 	o.isRunning = true
 
-	// Background cycles
+	// Background cycles -> 3 main Loops
 	o.wg.Add(3)
 	go o.healthCheckLoop()
 	go o.reconcileLoop()
@@ -178,7 +180,7 @@ func (o *Orchestrator) Start() error {
 	return nil
 }
 
-// Stop orchestartor -> Error returning? !!!
+// Stop orchestartor
 func (o *Orchestrator) Stop() error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -207,7 +209,7 @@ func (o *Orchestrator) Stop() error {
 	return nil
 }
 
-// GetMetricsStore -> return store for API
+// GetMetricsStore -> return store obj for API
 func (o *Orchestrator) GetMetricsStore() *metrics.MetricsStore {
 	return o.metricsStore
 }
@@ -240,7 +242,7 @@ func (o *Orchestrator) initServices() error {
 	return nil
 }
 
-// Метод для сбора метрик
+// Collect metrics
 func (o *Orchestrator) collectMetrics(ctx context.Context) {
 	tasks, err := o.taskStore.ListByStatus(ctx, types.TaskStatusRunning)
 	if err != nil {
@@ -284,7 +286,7 @@ func (o *Orchestrator) collectMetrics(ctx context.Context) {
 		o.metricsStore.StoreMetrics(metric)
 		collectedCount++
 
-		// Агрегация по сервисам (твой существующий код)
+		// Agregation by service
 		if _, exists := serviceMetrics[task.ServiceName]; !exists {
 			serviceMetrics[task.ServiceName] = &types.ServiceMetrics{
 				ServiceName: task.ServiceName,
@@ -300,9 +302,9 @@ func (o *Orchestrator) collectMetrics(ctx context.Context) {
 	o.logger.Info("collectMetrics completed",
 		"collected", collectedCount,
 		"failed", failedCount,
-		"total_tasks", len(tasks))
+		"total_tasks", len(tasks),
+	)
 
-	// Усреднение (твой существующий код)
 	for _, sm := range serviceMetrics {
 		if sm.TotalContainers > 0 {
 			sm.AvgCPUPercent /= float64(sm.TotalContainers)
@@ -326,7 +328,7 @@ func (o *Orchestrator) createServiceTask(ctx context.Context, service *types.Ser
 		return fmt.Errorf("failed to get nodes: %w", err)
 	}
 
-	// Task For Scheduler -> TEMP (временный)
+	// Task For Scheduler -> TEMP
 	tempTask := &types.Task{
 		ID:            taskID,
 		ServiceName:   service.ServiceName,
@@ -368,7 +370,7 @@ func (o *Orchestrator) createServiceTask(ctx context.Context, service *types.Ser
 		"service", service.ServiceName,
 		"node", nodeID)
 
-	// Do Task (асинхронно)
+	// Do Task
 	go o.executeTask(task)
 
 	return nil
@@ -448,7 +450,7 @@ func (o *Orchestrator) executeTask(task *types.Task) {
 	taskLogger.Info("executeTask: container started successfully", "container_id", containerID[:12])
 }
 
-// reconcileLoop -> start reconcile
+// First main Loop: reconcileLoop -> start reconcile
 func (o *Orchestrator) reconcileLoop() {
 	defer o.wg.Done()
 	ticker := time.NewTicker(o.settings.ReconcileInterval)
@@ -490,7 +492,7 @@ func (o *Orchestrator) reconcile() {
 
 	// 4. For each service in config
 	for i := range o.appConfig.Services {
-		svc := &o.appConfig.Services[i] // Работаем с указателем для возможности изменения
+		svc := &o.appConfig.Services[i]
 
 		serviceTasks := tasksByService[svc.ServiceName]
 		if serviceTasks == nil {
@@ -549,15 +551,12 @@ func (o *Orchestrator) reconcile() {
 						"error", err)
 				}
 
-				// Отключаем контейнер от сетей и удаляем
 				if task.ContainerID != "" {
-					// Останавливаем (контейнер может уже не работать)
 					o.dockerClient.StopContainer(ctx, task.ContainerID)
 
-					// Отключаем от сети для предотвращения конфликта
 					o.dockerClient.DisconnectFromNetwork(ctx, task.ContainerID)
 
-					// Удаляем
+					// Delete
 					if err := o.dockerClient.RemoveContainer(ctx, task.ContainerID); err != nil {
 						o.logger.Warn("failed to remove container",
 							"task_id", task.ID,
@@ -638,11 +637,10 @@ func (o *Orchestrator) reconcile() {
 	o.logger.Debug("reconciliation completed")
 }
 
-// calculateDesiredReplicas определяет желаемое количество реплик с учётом всех политик
+// calculateDesiredReplicas -> desired count of replicas by politics
 func (o *Orchestrator) calculateDesiredReplicas(service *types.ServiceConfig, currentReplicas int) int {
 	desired := service.Replicas
 
-	// Учитываем текущее состояние для более умного масштабирования
 	o.logger.Debug("calculating desired replicas",
 		"service", service.ServiceName,
 		"base_desired", desired,
@@ -650,7 +648,7 @@ func (o *Orchestrator) calculateDesiredReplicas(service *types.ServiceConfig, cu
 		"min_replicas", service.ScalePolicy.MinReplicas,
 		"max_replicas", service.ScalePolicy.MaxReplicas)
 
-	// Применяем min/max границы
+	// Apply min / max
 	if desired < service.ScalePolicy.MinReplicas {
 		o.logger.Debug("desired below min, adjusting up",
 			"service", service.ServiceName,
@@ -667,7 +665,7 @@ func (o *Orchestrator) calculateDesiredReplicas(service *types.ServiceConfig, cu
 		desired = service.ScalePolicy.MaxReplicas
 	}
 
-	// Анализируем разницу с текущим состоянием
+	// Chack actual vs desired state
 	diff := desired - currentReplicas
 	if diff > 0 {
 		o.logger.Debug("need to scale up",
@@ -685,9 +683,8 @@ func (o *Orchestrator) calculateDesiredReplicas(service *types.ServiceConfig, cu
 	return desired
 }
 
-// scaleDownService останавливает лишние реплики конкретного сервиса
+// scaleDownService -> Scale DOWN
 func (o *Orchestrator) scaleDownService(ctx context.Context, service *types.ServiceConfig, tasks []*types.Task, excess int) {
-	// Находим running задачи для остановки
 	runningTasks := make([]*types.Task, 0)
 	for _, task := range tasks {
 		if task.Status == types.TaskStatusRunning {
@@ -702,15 +699,15 @@ func (o *Orchestrator) scaleDownService(ctx context.Context, service *types.Serv
 		return
 	}
 
-	// Сортируем задачи с учётом preferences сервиса
+	// Sort Tasks by service preferences
 	o.sortTasksForScaleDown(runningTasks, service)
 
-	// Останавливаем нужное количество задач
+	// Stop tasks
 	stopped := 0
 	for i := 0; i < len(runningTasks) && stopped < excess; i++ {
 		task := runningTasks[i]
 
-		// Проверяем, не нарушит ли остановка этой задачи ограничения сервиса
+		// Check if orch can stop task
 		if !o.canStopTask(ctx, task, service, tasks, stopped) {
 			o.logger.Debug("skipping task stop due to service constraints",
 				"task_id", task.ID,
@@ -735,15 +732,11 @@ func (o *Orchestrator) scaleDownService(ctx context.Context, service *types.Serv
 			continue
 		}
 
-		// Отключаем контейнер от сетей и удаляем
 		if task.ContainerID != "" {
-			// Останавливаем (контейнер может уже не работать)
 			o.dockerClient.StopContainer(ctx, task.ContainerID)
 
-			// Отключаем от сети для предотвращения конфликта
 			o.dockerClient.DisconnectFromNetwork(ctx, task.ContainerID)
 
-			// Удаляем
 			if err := o.dockerClient.RemoveContainer(ctx, task.ContainerID); err != nil {
 				o.logger.Warn("failed to remove container",
 					"task_id", task.ID,
@@ -775,7 +768,7 @@ func (o *Orchestrator) scaleDownService(ctx context.Context, service *types.Serv
 		stopped++
 	}
 
-	// Логируем результат масштабирования
+	// Logging
 	if stopped < excess {
 		o.logger.Warn("could not scale down all excess tasks",
 			"service", service.ServiceName,
@@ -785,29 +778,25 @@ func (o *Orchestrator) scaleDownService(ctx context.Context, service *types.Serv
 	}
 }
 
-// sortTasksForScaleDown сортирует задачи для остановки с учётом типа сервиса
+// sortTasksForScaleDown -> Sort Tasks for Scale Down
 func (o *Orchestrator) sortTasksForScaleDown(tasks []*types.Task, service *types.ServiceConfig) {
-	// Базовая сортировка: сначала задачи на самых загруженных нодах
+	// Sort Tasks on most CPU BOUND nodes
 	sort.Slice(tasks, func(i, j int) bool {
-		// Для stateful сервисов - останавливаем задачи на менее предпочтительных нодах
 		if service.ServiceType == types.ServiceTypeStateful {
 			return o.isNodePreferredForStateful(o.ctx, tasks[i], service) >
 				o.isNodePreferredForStateful(o.ctx, tasks[j], service)
 		}
 
-		// Для stateless - останавливаем задачи на самых загруженных нодах
 		if service.ServiceType == types.ServiceTypeStateless {
-			return tasks[i].NodeID > tasks[j].NodeID // простая эвристика
+			return tasks[i].NodeID > tasks[j].NodeID
 		}
 
-		// По умолчанию - останавливаем более старые задачи
 		return tasks[i].CreatedAt.Before(tasks[j].CreatedAt)
 	})
 }
 
-// canStopTask исправленная версия (принимает контекст и использует allTasks правильно)
+// canStopTask -> Check if orch can Stop Task
 func (o *Orchestrator) canStopTask(ctx context.Context, task *types.Task, service *types.ServiceConfig, allTasks []*types.Task, alreadyStopped int) bool {
-	// Для daemon сервисов - нельзя останавливать последнюю задачу на ноде
 	if service.ServiceType == types.ServiceTypeDaemon {
 		tasksOnSameNode := 0
 		for _, t := range allTasks {
@@ -816,7 +805,6 @@ func (o *Orchestrator) canStopTask(ctx context.Context, task *types.Task, servic
 			}
 		}
 
-		// Учитываем уже остановленные задачи в этом цикле масштабирования
 		effectiveTasksOnNode := tasksOnSameNode - alreadyStopped
 
 		if effectiveTasksOnNode <= 1 {
@@ -828,7 +816,6 @@ func (o *Orchestrator) canStopTask(ctx context.Context, task *types.Task, servic
 		}
 	}
 
-	// Для stateful сервисов с anti-affinity - проверяем зоны
 	if service.ServiceType == types.ServiceTypeStateful &&
 		service.SchedulingConstraints != nil {
 		taskZone := o.getNodeZone(ctx, task.NodeID)
@@ -842,7 +829,6 @@ func (o *Orchestrator) canStopTask(ctx context.Context, task *types.Task, servic
 			}
 		}
 
-		// Учитываем сколько задач из этой зоны уже помечено на остановку
 		effectiveTasksInZone := tasksInSameZone - alreadyStopped
 
 		if effectiveTasksInZone <= 0 {
@@ -854,7 +840,6 @@ func (o *Orchestrator) canStopTask(ctx context.Context, task *types.Task, servic
 		}
 	}
 
-	// Проверяем общее количество реплик с учётом уже остановленных
 	runningCount := 0
 	for _, t := range allTasks {
 		if t.Status == types.TaskStatusRunning {
@@ -875,7 +860,6 @@ func (o *Orchestrator) canStopTask(ctx context.Context, task *types.Task, servic
 	return true
 }
 
-// isNodePreferredForStateful с контекстом
 func (o *Orchestrator) isNodePreferredForStateful(ctx context.Context, task *types.Task, service *types.ServiceConfig) int {
 	if service.SchedulingConstraints == nil {
 		return 0
@@ -887,15 +871,15 @@ func (o *Orchestrator) isNodePreferredForStateful(ctx context.Context, task *typ
 		if rule.Type == "zone" {
 			for _, preferredZone := range rule.Values {
 				if taskZone == preferredZone {
-					return 1 // Предпочтительная зона
+					return 1
 				}
 			}
 		}
 	}
-	return 0 // Не предпочтительная зона
+	return 0
 }
 
-// getNodeZone с контекстом
+// getNodeZone -> Get Node Zone
 func (o *Orchestrator) getNodeZone(ctx context.Context, nodeID string) string {
 	nodes, err := o.scheduler.GetNodes(ctx)
 	if err != nil {
@@ -912,22 +896,21 @@ func (o *Orchestrator) getNodeZone(ctx context.Context, nodeID string) string {
 	return "unknown"
 }
 
-// cleanupOrphanedTasks удаляет задачи, сервисы которых больше не в конфигурации
+// cleanupOrphanedTasks -> removes tasks whose services are no longer in the configuration
 func (o *Orchestrator) cleanupOrphanedTasks(ctx context.Context, allTasks []*types.Task, tasksByService map[string][]*types.Task) {
-	// Создаём множество активных сервисов
 	activeServices := make(map[string]bool)
 	for _, svc := range o.appConfig.Services {
 		activeServices[svc.ServiceName] = true
 	}
 
-	// Находим orphaned задачи, используя переданный tasksByService
+	// Find orphaned Tasks
 	for serviceName, tasks := range tasksByService {
 		if !activeServices[serviceName] {
 			o.logger.Info("found orphaned service tasks - cleaning up",
 				"service", serviceName,
-				"task_count", len(tasks))
+				"task_count", len(tasks),
+			)
 
-			// Используем allTasks для получения полной информации о задачах
 			orphanedTasks := make([]*types.Task, 0)
 			for _, task := range allTasks {
 				if task.ServiceName == serviceName {
@@ -935,36 +918,35 @@ func (o *Orchestrator) cleanupOrphanedTasks(ctx context.Context, allTasks []*typ
 				}
 			}
 
-			// Останавливаем все задачи этого сервиса
 			o.scaleDownService(ctx, &types.ServiceConfig{
 				ServiceName: serviceName,
 			}, orphanedTasks, len(orphanedTasks))
 
-			// Логируем сколько задач было очищено
 			o.logger.Info("orphaned service cleanup completed",
 				"service", serviceName,
-				"tasks_cleaned", len(orphanedTasks))
+				"tasks_cleaned", len(orphanedTasks),
+			)
 		}
 	}
 }
 
-// Предиктивное масштабирование
+// Predictive scaling
 func (o *Orchestrator) applyPredictiveScaling(ctx context.Context, service *types.ServiceConfig) {
 	config := service.ScalePolicy.PredictiveScaling
 	if config == nil || !config.Enabled {
 		return
 	}
 
-	// Получаем историю метрик
+	// Get Metrics history
 	metricsHistory := o.metricsStore.GetMetricsHistory(service.ServiceName)
 	if len(metricsHistory) < 5 {
 		o.logger.Debug("insufficient metrics history for prediction",
 			"service", service.ServiceName,
 			"data_points", len(metricsHistory))
-		return // 5 points min
+		return // Min -> 5 points of History
 	}
 
-	// Текущие метрики (за последнюю минуту)
+	// Current metrics
 	currentMetrics, err := o.metricsStore.GetServiceMetrics(service.ServiceName, 1*time.Minute)
 	if err != nil {
 		o.logger.Debug("failed to get current metrics",
@@ -973,11 +955,11 @@ func (o *Orchestrator) applyPredictiveScaling(ctx context.Context, service *type
 		return
 	}
 
-	// Предсказываем через линейную регрессию
+	// By linear regression
 	predictedCPU := o.predictCPU(metricsHistory, config.PredictionWindow)
 	predictedMem := o.predictMemory(metricsHistory, config.PredictionWindow)
 
-	// Логируем анализ
+	// Logging analyze
 	o.logger.Debug("predictive scaling analysis",
 		"service", service.ServiceName,
 		"current_cpu", fmt.Sprintf("%.2f%%", currentMetrics.AvgCPUPercent),
@@ -1001,19 +983,17 @@ func (o *Orchestrator) applyPredictiveScaling(ctx context.Context, service *type
 	}
 }
 
-// checkScaleUpConditions проверяет условия для масштабирования вверх
+// checkScaleUpConditions -> check conditions for SCALE UP
 func (o *Orchestrator) checkScaleUpConditions(
 	currentMetrics *types.ServiceMetrics,
 	predictedCPU, predictedMem float64,
 	config *types.PredictiveScalingConfig,
 	service *types.ServiceConfig,
 ) bool {
-	// Уже на максимуме
 	if service.Replicas >= service.ScalePolicy.MaxReplicas {
 		return false
 	}
 
-	// Критические условия - немедленное масштабирование
 	if currentMetrics.AvgCPUPercent > config.CPUThreshold ||
 		currentMetrics.AvgMemoryPercent > config.MemoryThreshold {
 		o.logger.Debug("current load exceeds threshold - immediate scale up",
@@ -1023,7 +1003,6 @@ func (o *Orchestrator) checkScaleUpConditions(
 		return true
 	}
 
-	// Предиктивные условия - предсказываем рост
 	if predictedCPU > config.CPUThreshold || predictedMem > config.MemoryThreshold {
 		o.logger.Debug("predicted load exceeds threshold - predictive scale up",
 			"service", service.ServiceName,
@@ -1032,11 +1011,10 @@ func (o *Orchestrator) checkScaleUpConditions(
 		return true
 	}
 
-	// Комбинированное условие (CPU + Memory)
 	combinedLoad := (currentMetrics.AvgCPUPercent/config.CPUThreshold +
 		currentMetrics.AvgMemoryPercent/config.MemoryThreshold) / 2.0
 
-	if combinedLoad > 0.9 { // 90% комбинированной нагрузки
+	if combinedLoad > 0.9 {
 		o.logger.Debug("combined load near threshold - scale up",
 			"service", service.ServiceName,
 			"combined_load", fmt.Sprintf("%.2f", combinedLoad))
@@ -1046,7 +1024,7 @@ func (o *Orchestrator) checkScaleUpConditions(
 	return false
 }
 
-// checkScaleDownConditions проверяет условия для масштабирования вниз
+// checkScaleDownConditions -> check conditions for SCALE DOWN
 func (o *Orchestrator) checkScaleDownConditions(
 	currentMetrics *types.ServiceMetrics,
 	predictedCPU, predictedMem float64,
@@ -1086,14 +1064,13 @@ func (o *Orchestrator) checkScaleDownConditions(
 	return false
 }
 
-// performScaleUp выполняет масштабирование вверх
+// performScaleUp -> SCALE UP
 func (o *Orchestrator) performScaleUp(
 	ctx context.Context,
 	service *types.ServiceConfig,
 	metrics *types.ServiceMetrics,
 	predictedCPU, predictedMem float64,
 ) {
-	// Проверяем cooldown
 	o.scaleMu.Lock()
 	lastTime, exists := o.lastScaleTime[service.ServiceName]
 	if exists {
@@ -1145,14 +1122,13 @@ func (o *Orchestrator) performScaleUp(
 	}
 }
 
-// Scale down
+// performScaleDown -> SCALE DOWN
 func (o *Orchestrator) performScaleDown(
 	ctx context.Context,
 	service *types.ServiceConfig,
 	metrics *types.ServiceMetrics,
 	predictedCPU, predictedMem float64,
 ) {
-	// Проверяем cooldown
 	o.scaleMu.Lock()
 	lastTime, exists := o.lastScaleTime[service.ServiceName]
 	if exists {
@@ -1200,7 +1176,7 @@ func (o *Orchestrator) performScaleDown(
 	o.scaleDownService(ctx, service, tasks, 1)
 }
 
-// calculateScaleFactor определяет коэффициент масштабирования
+// calculateScaleFactor -> calculate scaling maxRatio koef
 func (o *Orchestrator) calculateScaleFactor(
 	metrics *types.ServiceMetrics,
 	predictedCPU, predictedMem float64,
@@ -1208,39 +1184,36 @@ func (o *Orchestrator) calculateScaleFactor(
 ) int {
 	config := service.ScalePolicy.PredictiveScaling
 
-	// Вычисляем, насколько текущая/предсказанная нагрузка превышает порог
 	cpuRatio := math.Max(metrics.AvgCPUPercent, predictedCPU) / config.CPUThreshold
 	memRatio := math.Max(metrics.AvgMemoryPercent, predictedMem) / config.MemoryThreshold
 
-	// Берём максимальное отклонение
 	maxRatio := math.Max(cpuRatio, memRatio)
 
-	// Определяем количество реплик для добавления
 	switch {
 	case maxRatio > 2.0:
-		return 3 // Очень высокая нагрузка - добавляем 3 реплики
+		return 3
 	case maxRatio > 1.5:
-		return 2 // Высокая нагрузка - добавляем 2 реплики
+		return 2
 	case maxRatio > 1.0:
-		return 1 // Умеренная нагрузка - добавляем 1 реплику
+		return 1
 	default:
-		return 1 // Консервативно - добавляем 1 реплику
+		return 1
 	}
 }
 
-// Простое предсказание CPU на основе линейного тренда
+// Simple CPU prediction based on linear trend
 func (o *Orchestrator) predictCPU(history []types.ContainerMetric, predictionWindow int) float64 {
 	if len(history) < 2 {
 		return 0
 	}
 
-	// Берем последние N записей
+	// Get Last N records
 	recentHistory := history
 	if len(history) > 10 {
 		recentHistory = history[len(history)-10:]
 	}
 
-	// Вычисляем тренд
+	// Calculate trend
 	var sumX, sumY, sumXY, sumX2 float64
 	n := float64(len(recentHistory))
 
@@ -1253,11 +1226,11 @@ func (o *Orchestrator) predictCPU(history []types.ContainerMetric, predictionWin
 		sumX2 += x * x
 	}
 
-	// Линейная регрессия: y = a + b*x
+	// y = a + b*x
 	b := (n*sumXY - sumX*sumY) / (n*sumX2 - sumX*sumX)
 	a := (sumY - b*sumX) / n
 
-	// Предсказываем через predictionWindow/10 шагов
+	// Prediction...
 	futurePoint := n + float64(predictionWindow)/10.0
 	predicted := a + b*futurePoint
 
@@ -1271,8 +1244,8 @@ func (o *Orchestrator) predictCPU(history []types.ContainerMetric, predictionWin
 	return predicted
 }
 
+// predictMemory -> predict memory for scaling
 func (o *Orchestrator) predictMemory(history []types.ContainerMetric, predictionWindow int) float64 {
-	// Аналогично predictCPU но для памяти
 	if len(history) < 2 {
 		return 0
 	}
@@ -1310,7 +1283,7 @@ func (o *Orchestrator) predictMemory(history []types.ContainerMetric, prediction
 	return predicted
 }
 
-// healthCheckLoop -> Health check loop
+// Second main Loop: healthCheckLoop -> Health check loop
 func (o *Orchestrator) healthCheckLoop() {
 	defer o.wg.Done()
 	ticker := time.NewTicker(o.settings.HealthCheckInterval)
@@ -1351,13 +1324,11 @@ func (o *Orchestrator) checkHealth() {
 	errorCount := 0
 
 	for _, task := range tasks {
-		// Пропускаем задачи без конфигурации health check
 		if task.ServiceConfig == nil || task.ServiceConfig.HealthCheck == nil {
 			o.logger.Debug("checkHealth: task has no health check config", "task_id", task.ID)
 			continue
 		}
 
-		// Проверяем статус контейнера
 		status, err := o.dockerClient.GetConatinerStatus(ctx, task.ContainerID)
 		if err != nil {
 			o.logger.Error("checkHealth: failed to get container status",
@@ -1385,7 +1356,7 @@ func (o *Orchestrator) checkHealth() {
 			continue
 		}
 
-		// Проверяем health
+		// Check Health
 		healthy, err := o.dockerClient.CheckContainerHealth(ctx, task.ContainerID, task.ServiceConfig.HealthCheck)
 		if err != nil {
 			o.logger.Error("checkHealth: health check error",
@@ -1421,7 +1392,7 @@ func (o *Orchestrator) checkHealth() {
 		"errors", errorCount)
 }
 
-// cleanUpLoop
+// Third main Loop: cleanUpLoop
 func (o *Orchestrator) cleanUpLoop() {
 	defer o.wg.Done()
 	ticker := time.NewTicker(o.settings.CleanUpIntarval)
@@ -1459,7 +1430,7 @@ func (o *Orchestrator) cleanup() {
 				"task_id", task.ID,
 				"finished_at", task.FinishedAt)
 
-			// release old resources (if not done yet)
+			// release old resources -> if not done yet
 			if task.NodeID != "" {
 				o.scheduler.ReleaseNodeResources(ctx, task.NodeID, task)
 			}

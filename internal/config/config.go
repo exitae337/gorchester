@@ -1,3 +1,4 @@
+// Package Config. Загрузка и валидация конфигурации из config/config.yaml.
 package config
 
 import (
@@ -13,15 +14,13 @@ import (
 
 const (
 	// Min CPU in millicores
-	// 1m = 0.001 CPU, but Linux can't garant less than 1m
 	MinMilliCores = 5 // 0.005 CPU
 
 	// Memory - minimum memory in bytes for starting docker container
-	// PAGE_SIZE * 2
 	MinMemoryBytes = 16 * 1024 * 1024 // 16 MiB
 )
 
-// Load orchestrator configuration -> Main Loading configuration process
+// Load orchestrator configuration -> Main Loading config process
 func MustLoad() *types.OchestratorConfig {
 	configPath := os.Getenv("CONFIG_PATH")
 	if configPath == "" {
@@ -63,7 +62,7 @@ func validateConfig(config *types.OchestratorConfig) error {
 			errorString.WriteString(fmt.Sprintf("%s image name can't be empty: required\n", prefix))
 		}
 
-		// Replicas check (разрешён 0 для batch-сервисов)
+		// Replicas count check
 		if service.Replicas < 0 {
 			errorString.WriteString(fmt.Sprintf("%s amount of replicas can't be negative\n", prefix))
 		}
@@ -212,6 +211,8 @@ func LoadConfig(path string) (*types.OchestratorConfig, error) {
 	return &config, nil
 }
 
+// ========= HELPERS =========
+
 // Apply defaults funcs
 func applyDefaults(config *types.OchestratorConfig) {
 	for i := range config.Services {
@@ -222,14 +223,14 @@ func applyDefaults(config *types.OchestratorConfig) {
 	}
 }
 
-// Новые значения по умолчанию для сервиса
+// New default values
 func applyServiceDefaults(svc *types.ServiceConfig) {
-	// Тип сервиса по умолчанию
+	// default service type
 	if svc.ServiceType == "" {
 		svc.ServiceType = types.ServiceTypeStateless
 	}
 
-	// Если нет scheduling constraints, создаём пустые
+	// IF empty constraints
 	if svc.SchedulingConstraints == nil {
 		svc.SchedulingConstraints = &types.SchedulingConstraints{}
 	}
@@ -253,7 +254,6 @@ func applyScalePolicyDefaults(sp *types.ScalePolicy) {
 		sp.CooldownSeconds = 10
 	}
 
-	// Инициализируем PredictiveScaling если nil
 	if sp.PredictiveScaling == nil {
 		sp.PredictiveScaling = &types.PredictiveScalingConfig{
 			Enabled: false,
@@ -267,10 +267,10 @@ func applyPredictiveScalingDefaults(ps *types.PredictiveScalingConfig) {
 		return
 	}
 	if ps.LookbackWindow == 0 {
-		ps.LookbackWindow = 300 // 5 минут
+		ps.LookbackWindow = 300
 	}
 	if ps.PredictionWindow == 0 {
-		ps.PredictionWindow = 60 // 1 минута
+		ps.PredictionWindow = 60
 	}
 	if ps.CPUThreshold == 0 {
 		ps.CPUThreshold = 70.0

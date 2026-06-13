@@ -1,3 +1,4 @@
+// Package types. Типы данных для работы с логическими узлами.
 package types
 
 import (
@@ -47,22 +48,22 @@ type Node struct {
 	Mu sync.RWMutex `json:"-"`
 }
 
-// NodeStats представляет статистику по узлу
+// NodeStats
 type NodeStats struct {
 	NodeID       string
 	TotalTasks   int
 	RunningTasks int
-	CPUUsage     float64 // процент использования
-	MemoryUsage  float64 // процент использования
+	CPUUsage     float64
+	MemoryUsage  float64
 	Uptime       time.Duration
 }
 
-// NodeConfig — конфигурация узла из config.yaml
+// NodeConfig
 type NodeConfig struct {
 	ID       string            `yaml:"id" json:"id"`
 	Hostname string            `yaml:"hostname" json:"hostname"`
 	IP       string            `yaml:"ip" json:"ip"`
-	CPU      int64             `yaml:"cpu" json:"cpu"`       // в миллиядрах
-	Memory   int64             `yaml:"memory" json:"memory"` // в байтах
+	CPU      int64             `yaml:"cpu" json:"cpu"`
+	Memory   int64             `yaml:"memory" json:"memory"`
 	Labels   map[string]string `yaml:"labels,omitempty" json:"labels,omitempty"`
 }

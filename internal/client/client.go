@@ -1,3 +1,5 @@
+// Package client. Пакет работы с Docker API.
+// Интерфейс работы с Docker API и основные структуры.
 package client
 
 import (

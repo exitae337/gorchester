@@ -16,6 +16,7 @@ Modern applications are often built as a set of microservices running in contain
 
 The goal is not to build a production-ready system, but to create a functional prototype that demonstrates the core principles of container orchestration.
 
+
 ## ✨ Planned Features / Current Status
 
 | Component | Status | Description |

@@ -1,3 +1,5 @@
+// Package types. Типы для работы процесса оркестарции.
+// Все основные типы определены в данном файле.
 package types
 
 import (
@@ -82,7 +84,7 @@ type OchestratorConfig struct {
 	Nodes       []NodeConfig    `yaml:"nodes"`                                      // Nodes from cfg
 }
 
-// TODO: comments
+// Service config struct
 type ServiceConfig struct {
 	ServiceName   string        `yaml:"service_name" json:"service_name"`
 	Image         string        `yaml:"image" json:"image"`
@@ -127,10 +129,10 @@ type AffinityRule struct {
 // PredictiveScalingConfig for predictive scheduling
 type PredictiveScalingConfig struct {
 	Enabled          bool    `yaml:"enabled" json:"enabled"`
-	LookbackWindow   int     `yaml:"lookback_window" json:"lookback_window"`     // секунд
-	PredictionWindow int     `yaml:"prediction_window" json:"prediction_window"` // секунд
-	CPUThreshold     float64 `yaml:"cpu_threshold" json:"cpu_threshold"`         // процент
-	MemoryThreshold  float64 `yaml:"memory_threshold" json:"memory_threshold"`   // процент
+	LookbackWindow   int     `yaml:"lookback_window" json:"lookback_window"`     // sec
+	PredictionWindow int     `yaml:"prediction_window" json:"prediction_window"` // sec
+	CPUThreshold     float64 `yaml:"cpu_threshold" json:"cpu_threshold"`         // percent
+	MemoryThreshold  float64 `yaml:"memory_threshold" json:"memory_threshold"`   // percent
 }
 
 // Container metrics
