@@ -249,7 +249,6 @@ func (s *APIServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get service names from orchestrator
 	ctx := context.Background()
 	tasks, err := s.orch.ListTasks(ctx)
 	if err != nil {
@@ -333,7 +332,7 @@ func (s *APIServer) handleStrategy(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		// Return current strategy
 		writeJSON(w, http.StatusOK, map[string]string{
-			"strategy": "spread", // TODO: get from scheduler config
+			"strategy": string(s.sched.GetStrategy()),
 		})
 	case http.MethodPut:
 		// Change strategy
@@ -349,7 +348,6 @@ func (s *APIServer) handleStrategy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Validate strategy
 		validStrategies := map[string]bool{
 			"random": true, "round_robin": true, "binpack": true,
 			"spread": true, "least_tasks": true, "least_resource": true,
@@ -359,11 +357,13 @@ func (s *APIServer) handleStrategy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		s.sched.SetStrategy(scheduler.Strategy(strategy))
+
 		// TODO: update scheduler strategy
 		writeJSON(w, http.StatusOK, map[string]string{
-			"status":    "not_implemented",
-			"message":   "strategy change via API is not yet implemented",
-			"requested": strategy,
+			"status":   "ok",
+			"message":  "strategy has been changed via API",
+			"strategy": strategy,
 		})
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")

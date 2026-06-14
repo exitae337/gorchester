@@ -490,6 +490,74 @@ func (o *Orchestrator) reconcile() {
 	// 3. Collect metrics for all running containers
 	o.collectMetrics(ctx)
 
+	// Drainig nodes...
+	nodes, err := o.scheduler.GetNodes(ctx)
+	if err != nil {
+		o.logger.Error("failed to get Nodes from scheduler -> draining check", "error", err)
+	} else {
+		for _, node := range nodes {
+			node.Mu.RLock()
+			isDraining := node.Status == types.NodeStatusDraining
+			node.Mu.RUnlock()
+
+			if !isDraining {
+				continue
+			}
+
+			drainingTasks, err := o.taskStore.ListByNodeID(ctx, node.ID)
+			if err != nil {
+				o.logger.Error("failed to list tasks on draining node",
+					"node_id", node.ID, "error", err)
+				continue
+			}
+
+			for _, task := range drainingTasks {
+				if task.Status != types.TaskStatusRunning {
+					continue
+				}
+				o.logger.Info("evacuating task from draining node",
+					"task_id", task.ID,
+					"service", task.ServiceName,
+					"node", node.ID,
+				)
+
+				if task.NodeID != "" {
+					o.scheduler.ReleaseNodeResources(ctx, task.NodeID, task)
+				}
+
+				// Stop and remove container
+				if task.ContainerID != "" {
+					o.dockerClient.StopContainer(ctx, task.ContainerID)
+					o.dockerClient.DisconnectFromNetwork(ctx, task.ContainerID)
+					if err := o.dockerClient.RemoveContainer(ctx, task.ContainerID); err != nil {
+						o.logger.Warn("failed to remove container from drained node",
+							"task_id", task.ID,
+							"container", task.ContainerID[:12],
+							"error", err)
+					}
+				}
+
+				// Mark as stopped
+				task.Status = types.TaskStatusStopped
+				now := time.Now()
+				task.FinishedAt = &now
+				task.DesiredState = types.TaskStatusStopped
+				o.taskStore.Update(ctx, task)
+
+				// Recreate on another node
+				for i := range o.appConfig.Services {
+					if o.appConfig.Services[i].ServiceName == task.ServiceName {
+						if err := o.createServiceTask(ctx, &o.appConfig.Services[i]); err != nil {
+							o.logger.Error("failed to recreate task from drained node",
+								"service", task.ServiceName, "error", err)
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+
 	// 4. For each service in config
 	for i := range o.appConfig.Services {
 		svc := &o.appConfig.Services[i]

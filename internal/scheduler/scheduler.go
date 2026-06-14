@@ -593,6 +593,21 @@ func (s *SimpleScheduler) ReleaseNodeResources(ctx context.Context, nodeID strin
 	return nil
 }
 
+// Set strategy (API Method)
+func (s *SimpleScheduler) SetStrategy(strategy Strategy) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.config.Strategy = strategy
+	s.logger.Info("scheduler strategy has been changed", "strategy", strategy)
+}
+
+// Get strategy (API Method)
+func (s *SimpleScheduler) GetStrategy() Strategy {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.config.Strategy
+}
+
 // Heartbeat workers methods
 func (s *SimpleScheduler) startHeatbeatWorker(nodeID string) {
 	s.heartbeatMu.Lock()
