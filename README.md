@@ -1,43 +1,42 @@
 # Go Orchestrator
 
-[![Go Version](https://img.shields.io/badge/Go-1.21%2B-blue.svg)](https://golang.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Status: WIP](https://img.shields.io/badge/Status-Active%20Development-orange.svg)](https://github.com/exitae337/orchestergo)
-
 A lightweight, educational container orchestrator written in Go, developed as a Master's degree thesis project. This project aims to demystify the core concepts behind systems like Kubernetes by building a minimal yet functional orchestrator from the ground up with easy configuration.
-
-> **Note:** This project is currently under active development as part of my Master's program. Features and the codebase are evolving rapidly.
 
 ---
 
-## 🚀 Project Overview
+## Project Overview
 
 Modern applications are often built as a set of microservices running in containers. Orchestrators automate the deployment, scaling, and management of these containerized applications. This project is a hands-on implementation of such a system, focusing on the fundamental scheduling and cluster management algorithms.
 
 The goal is not to build a production-ready system, but to create a functional prototype that demonstrates the core principles of container orchestration.
 
+## Features
 
-## ✨ Planned Features / Current Status
+| Component | Description |
+| :--- | :--- |
+| REST API | Cluster state access, service and task management |
+| Scheduler | Adaptive placement with 6 strategies, affinity/anti-affinity rules |
+| Reconciliation Loop | Continuous desired vs actual state comparison, self-healing |
+| Health Checks | HTTP, TCP, and command-based container health monitoring |
+| Predictive Auto-scaling | Linear regression on historical metrics for proactive scaling |
+| Task Store | In-memory storage with multi-index lookup, thread-safe access |
+| Metrics Collection | CPU, memory, and network metrics via Docker Stats API |
+| Declarative Configuration | YAML-based service definition with validation |
 
-| Component | Status | Description |
-| :--- | :--- | :--- |
-| **REST API** | 🔄 **In Progress** | Basic HTTP API for submitting and managing jobs. |
-| **Scheduler** | ⏳ **Planned** | Core scheduling logic for assigning tasks to nodes. |
-| **Node Agent** | ⏳ **Planned** | Lightweight agent to run on worker nodes. |
-| **Service Discovery** | 💡 **Backlog** | Automatic discovery of nodes in the cluster. |
-| **Health Checks** | 💡 **Backlog** | Monitoring container and node health. |
+## Architecture
 
-*(This table will be updated as the project progresses.)*
+The orchestrator runs as a single binary and communicates with Docker Engine on managed nodes. All components — scheduling, health checking, metrics collection, and API — execute within the same process, eliminating the need for external databases or message brokers.
 
-## 🏗️ Architecture (High-Level)
+| Component | Role |
+| :--- | :--- |
+| Core | Reconciliation Loop, Health Check Loop, Cleanup Loop, predictive scaling |
+| Scheduler | Node selection via 6 strategies, adaptive to service type |
+| Docker Client | Container lifecycle management through Docker SDK |
+| Task Store | In-memory state storage with indexes by container, node, service, and status |
+| Metrics | Periodic CPU/memory/network collection, ring buffer storage |
+| API Server | REST endpoints for services, nodes, tasks, metrics, and configuration |
 
-The system is designed with a primary master node and multiple worker nodes.
-
-1.  **Master Node:** Hosts the central brain of the orchestrator — the REST API and the Scheduler.
-2.  **Worker Nodes:** Run a lightweight agent that communicates with the master, receives tasks, and executes containers.
-3.  **Client:** Users interact with the system by sending requests (e.g., to run a container) to the Master's REST API.
-
-## 🛠️ Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -53,7 +52,13 @@ The system is designed with a primary master node and multiple worker nodes.
 
 2.  Build the project:
     ```bash
-    go build -o go-orchestrator cmd/main.go
+    make build
+    make run
+    ```
+    Or manually:
+    ```bash
+    go build -o gorchester cmd/gorchester/main.go
+    ./gorchester
     ```
 
 ### Configuration File Documentation: `config.yaml`
@@ -67,12 +72,13 @@ The `config.yaml` file is used to configure the `gorchester` orchestrator. All v
 ### Root Level Configuration
 
 | Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `env` | `string` | No | `"local"` | Environment: `local`, `dev`, `prod` |
-| `listen_addr` | `string` | No | `":8080"` | Address and port for the orchestrator's REST API |
-| `data_dir` | `string` | No | `"./orchestrator-data"` | Directory for orchestrator data storage |
-| `cluster_name` | `string` | No | `"default-cluster"` | Cluster name for identification |
-| `services` | `array` | **Yes** | - | List of services to orchestrate |
+| :--- | :--- | :--- | :--- | :--- |
+| `env` | string | no | `"local"` | Runtime environment: `local`, `dev`, `prod` |
+| `listen_addr` | string | no | `":8080"` | API server listen address |
+| `data_dir` | string | no | `"./orchestrator-data"` | Data directory |
+| `cluster_name` | string | no | `"default-cluster"` | Cluster identifier |
+| `nodes` | array | yes | — | Compute nodes configuration |
+| `services` | array | yes | — | Services to orchestrate |
 
 ## Services
 
@@ -82,278 +88,223 @@ Each service describes one application/microservice to be deployed.
 
 #### Basic Settings
 
-| Field | Type | Required | Example | Description |
-|-------|------|----------|---------|-------------|
-| `service_name` | `string` | **Yes** | `"web-server"` | Unique service name |
-| `image` | `string` | **Yes** | `"nginx:alpine"` | Docker image (from Docker Hub or local) |
-| `replicas` | `integer` | **Yes** | `2` | Number of container replicas (instances) |
-| `ports` | `array` | No | - | Port mappings from host to container |
-| `env` | `array` | No | `["KEY=value"]` | Environment variables |
-| `command` | `array` | No | `["npm", "start"]` | Startup command (overrides Dockerfile CMD) |
-| `volumes` | `array` | No | `["/host:/container"]` | Volume mounts |
-| `network` | `string` | No | `"gorchester-network"` | Docker network to connect to |
-| `network_mode` | `string` | No | `"bridge"` | Network mode: `bridge`, `host`, `none` |
-| `dns` | `array` | No | `["8.8.8.8"]` | DNS servers |
-| `extra_hosts` | `array` | No | `["host.docker.internal:host-gateway"]` | Additional `/etc/hosts` entries |
-| `restart_policy` | `string` | No | `"always"` | Restart policy: `no`, `always`, `on-failure`, `unless-stopped` |
+| Field | Type | Required | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `service_name` | string | yes | — | Unique service identifier |
+| `image` | string | yes | — | Docker image name |
+| `service_type` | string | no | `"stateless"` | `stateless`, `stateful`, `batch`, `daemon` |
+| `replicas` | integer | yes | — | Desired number of instances |
+| `ports` | array | no | — | Port mappings |
+| `command` | array | no | — | Container command override |
+| `env` | array | no | — | Environment variables |
+| `volumes` | array | no | — | Volume mounts |
+| `network_mode` | string | no | — | Docker network mode |
+| `dns` | array | no | — | DNS servers |
+| `extra_hosts` | array | no | — | Extra hosts entries |
+| `restart_policy` | string | no | `"no"` | `no`, `always`, `on-failure`, `unless-stopped` |
+| `resources` | object | yes | — | CPU and memory limits |
+| `scale_policy` | object | no | — | Auto-scaling settings |
+| `health_check` | object | no | — | Health check settings |
+| `scheduling_constraints` | object | no | — | Affinity and anti-affinity rules |
 
-#### Port Mapping (PortMapping)
+### Port Mapping
 
-Each element in the `ports` array has the following structure:
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `host_port` | integer | yes | Host port (0 = random assignment) |
+| `container_port` | integer | yes | Container port |
+| `protocol` | string | yes | `tcp` or `udp` |
 
-```yaml
-ports:
-  - host_port: 8080      # Port on the host
-    container_port: 80   # Port inside the container
-    protocol: "tcp"      # Protocol: tcp or udp
-```
+### Resources
 
-**Important**: If `host_port` is not specified or set to 0, Docker will assign a random port.
+| Field | Type | Required | Minimum | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `cpu_millicores` | integer | yes | 5 | CPU in millicores (1000 = 1 core) |
+| `memory_bytes` | integer | yes | 16 MB | Memory in bytes |
 
-#### Resources (resources)
+### Scale Policy
 
-| Field | Type | Required | Minimum | Example | Description |
-|-------|------|----------|---------|---------|-------------|
-| `cpu_millicores` | `integer` | **Yes** | `5` | `500` | CPU in millicores (1000m = 1 core) |
-| `memory_bytes` | `integer` | **Yes** | `16MB` | `268435456` | Memory in bytes |
+| Field | Type | Required | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `min_replicas` | integer | no | 1 | Minimum replica count |
+| `max_replicas` | integer | no | `min_replicas` | Maximum replica count |
+| `target_cpu` | float | no | 50.0 | Target CPU utilization (%) |
+| `target_memory` | float | no | 50.0 | Target memory utilization (%) |
+| `cooldown_seconds` | integer | no | 10 | Cooldown between scaling actions |
+| `predictive_scaling` | object | no | disabled | Predictive scaling settings |
 
-**Notes:**
-- 1 CPU core = 1000 millicores
-- 100m = 0.1 CPU core
-- Minimum memory: 16MB (16,777,216 bytes)
+### Predictive Scaling
 
-#### Auto-scaling Policy (scale_policy)
+| Field | Type | Required | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `enabled` | boolean | no | `false` | Enable predictive scaling |
+| `lookback_window` | integer | no | 300 | History window in seconds |
+| `prediction_window` | integer | no | 60 | Forecast horizon in seconds |
+| `cpu_threshold` | float | no | 70.0 | CPU threshold for scale-up (%) |
+| `memory_threshold` | float | no | 80.0 | Memory threshold for scale-up (%) |
 
-| Field | Type | Required | Minimum | Example | Description |
-|-------|------|----------|---------|---------|-------------|
-| `min_replicas` | `integer` | No | `1` | `1` | Minimum number of replicas |
-| `max_replicas` | `integer` | No | `1` | `5` | Maximum number of replicas |
-| `target_cpu` | `float` | No | `5.0` | `70.0` | Target CPU utilization percentage |
-| `target_memory` | `float` | No | `10.0` | `80.0` | Target memory utilization percentage |
-| `cooldown_seconds` | `integer` | No | `30` | `60` | Cooldown period between scaling actions (seconds) |
+### Health Check
 
-#### Health Check (health_check)
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `type` | string | no | `http`, `tcp`, or `command` |
+| `http_path` | string | for http | HTTP path |
+| `port` | integer | for http/tcp | Port number |
+| `command` | array | for command | Command to execute |
+| `interval` | duration | no | Check interval |
+| `timeout` | duration | no | Check timeout |
+| `retries` | integer | no | Failures before marking unhealthy |
+| `start_period` | duration | no | Grace period before first check |
 
-| Field | Type | Required | Depends on type | Example | Description |
-|-------|------|----------|----------------|---------|-------------|
-| `type` | `string` | No | - | `"http"` | Check type: `http`, `tcp`, `command` |
-| `http_path` | `string` | For `type: http` | - | `"/health"` | URL path for HTTP check |
-| `port` | `integer` | For `type: http/tcp` | - | `8080` | Port for checking |
-| `command` | `array` | For `type: command` | - | `["curl", "-f", "http://localhost:3000/health"]` | Command to execute |
-| `interval` | `integer` | No | `1` | `30` | Interval between checks (seconds) |
-| `timeout` | `integer` | No | `0` | `10` | Check timeout (seconds) |
-| `retries` | `integer` | No | `0` | `3` | Number of retries before marking as unhealthy |
+### Scheduling Constraints
 
-## Configuration Examples
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `affinity` | array | Rules preferring nodes with matching labels |
+| `anti_affinity` | array | Rules excluding nodes with matching labels |
 
-### Example 1: Web Server
+Each rule:
 
-```yaml
-service_name: "web-frontend"
-image: "nginx:alpine"
-replicas: 3
-ports:
-  - host_port: 80
-    container_port: 80
-    protocol: "tcp"
-env:
-  - "NGINX_ENV=production"
-resources:
-  cpu_millicores: 200    # 0.2 CPU cores
-  memory_bytes: 134217728  # 128MB
-health_check:
-  type: "http"
-  http_path: "/health"
-  port: 80
-  interval: 30
-```
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `type` | string | Label key |
+| `operator` | string | `in` |
+| `values` | array | Label values |
 
-### Example 2: Database
+## Configuration Example
 
 ```yaml
-service_name: "postgres-db"
-image: "postgres:15-alpine"
-replicas: 1
-ports:
-  - host_port: 5432
-    container_port: 5432
-env:
-  - "POSTGRES_PASSWORD=secret"
-volumes:
-  - "pgdata:/var/lib/postgresql/data"
-resources:
-  cpu_millicores: 500    # 0.5 CPU cores
-  memory_bytes: 1073741824  # 1GB
-health_check:
-  type: "command"
-  command: ["pg_isready", "-U", "postgres"]
-  interval: 30
-```
-
-### Example 3: Application with Auto-scaling
-
-```yaml
-service_name: "api-service"
-image: "myapp/api:latest"
-replicas: 2
-ports:
-  - host_port: 3000
-    container_port: 3000
-scale_policy:
-  min_replicas: 2
-  max_replicas: 10
-  target_cpu: 80.0
-  cooldown_seconds: 120
-health_check:
-  type: "tcp"
-  port: 3000
-  interval: 15
-```
-
-## Additional Notes
-
-### Environment Variables (env)
-
-```yaml
-env:
-  - "DATABASE_URL=postgresql://user:pass@db:5432/app"
-  - "LOG_LEVEL=debug"
-  - "REDIS_HOST=redis"
-```
-
-### Volumes
-
-Three formats are supported:
-1. **Bind mount**: `/host/path:/container/path`
-2. **Named volume**: `volume_name:/container/path`
-3. **Read-only**: `/host/path:/container/path:ro`
-
-```yaml
-volumes:
-  - "/var/www:/usr/share/nginx/html"  # Bind mount
-  - "app_data:/data"                  # Named volume
-  - "/config:/etc/app:ro"             # Read-only
-```
-
-### Restart Policies (restart_policy)
-
-| Value | Description |
-|-------|-------------|
-| `no` | Do not restart (default) |
-| `always` | Always restart |
-| `on-failure` | Restart on failure |
-| `unless-stopped` | Restart unless manually stopped |
-
-### Units of Measurement
-
-| Resource | Unit | Example | Note |
-|----------|------|---------|------|
-| CPU | millicores | `500` = 0.5 core | 1000m = 1 full core |
-| Memory | bytes | `268435456` = 256MB | Use powers of two |
-| Time | seconds | `30` = 30 seconds | For intervals and timeouts |
-
-## Complete Example
-
-```yaml
-# config.yaml
-env: "production"
+env: "local"
 listen_addr: ":8080"
-data_dir: "/var/lib/gorchester"
-cluster_name: "production-cluster"
+cluster_name: "dev-cluster"
+
+nodes:
+  - id: "node-1"
+    hostname: "worker-1.local"
+    ip: "192.168.1.101"
+    cpu: 4000
+    memory: 17179869184
+    labels:
+      zone: "a"
 
 services:
-  - service_name: "load-balancer"
+  - service_name: "web-frontend"
     image: "nginx:alpine"
+    service_type: "stateless"
     replicas: 2
     ports:
-      - host_port: 80
+      - host_port: 0
         container_port: 80
         protocol: "tcp"
-      - host_port: 443
-        container_port: 443
-        protocol: "tcp"
-    env:
-      - "UPSTREAM_SERVERS=app1:3000,app2:3000"
-    volumes:
-      - "/etc/nginx/conf.d:/etc/nginx/conf.d:ro"
     resources:
-      cpu_millicores: 300
+      cpu_millicores: 200
       memory_bytes: 134217728
     scale_policy:
-      min_replicas: 2
-      max_replicas: 5
+      min_replicas: 1
+      max_replicas: 6
       target_cpu: 70.0
-      cooldown_seconds: 90
+      target_memory: 80.0
+      predictive_scaling:
+        enabled: true
+        lookback_window: 300
+        prediction_window: 60
+        cpu_threshold: 75.0
+        memory_threshold: 85.0
     health_check:
       type: "http"
-      http_path: "/nginx-health"
+      http_path: "/"
       port: 80
-      interval: 30
-      timeout: 5
+      interval: "10s"
+      timeout: "5s"
       retries: 3
 
-  - service_name: "application"
-    image: "mycompany/app:1.5.0"
-    replicas: 3
+  - service_name: "redis-cache"
+    image: "redis:alpine"
+    service_type: "stateful"
+    replicas: 1
     ports:
-      - host_port: 0  # Random port
-        container_port: 3000
-    env:
-      - "DATABASE_URL=postgresql://user:pass@db:5432/app"
-      - "REDIS_URL=redis://cache:6379/0"
+      - host_port: 0
+        container_port: 6379
+        protocol: "tcp"
     resources:
-      cpu_millicores: 500
-      memory_bytes: 268435456
-    scale_policy:
-      min_replicas: 3
-      max_replicas: 10
-      target_cpu: 75.0
-      target_memory: 85.0
-      cooldown_seconds: 120
+      cpu_millicores: 100
+      memory_bytes: 67108864
     health_check:
-      type: "http"
-      http_path: "/api/health"
-      port: 3000
-      interval: 20
-      timeout: 10
-      retries: 2
+      type: "tcp"
+      port: 6379
+      interval: "15s"
+      timeout: "5s"
+      retries: 3
+
+  - service_name: "batch-job"
+    image: "busybox:latest"
+    service_type: "batch"
+    replicas: 0
+    command:
+      - "sh"
+      - "-c"
+      - "echo 'Processing...' && sleep 600"
+    resources:
+      cpu_millicores: 100
+      memory_bytes: 67108864
 ```
+
+## API Reference
+
+## API Reference
+
+| Method | Path | Description |
+| :--- | :--- | :--- |
+| GET | `/api/v1/health` | Orchestrator health status |
+| GET | `/api/v1/services` | List services with replica counts |
+| GET | `/api/v1/services/{name}` | Service details with task list |
+| GET | `/api/v1/nodes` | Node list with resource utilization |
+| GET | `/api/v1/tasks` | All tasks with container IDs and status |
+| GET | `/api/v1/metrics` | Current CPU and memory metrics per service |
+| PUT | `/api/v1/config/strategy` | Change scheduling strategy (in progress) |
+
+Strategy change request body:
+    ```json
+    {"strategy": "binpack"}
+    ```
+
+Valid strategies: random, round_robin, binpack, spread, least_tasks, least_resource.
+
+### Scheduling
+
+| Strategy | Behavior |
+| :--- | :--- |
+| `random` | Uniform random node from feasible set |
+| `round_robin` | Per-service cyclic iteration |
+| `binpack` | Fill densest node first, minimize active nodes |
+| `spread` | Fill emptiest node first, maximize failure tolerance |
+| `least_tasks` | Node with minimum task count |
+| `least_resource` | Node with maximum free resources |
+
+Adaptive selection by service type:
+
+| Service Type | Strategy |
+| :--- | :--- |
+| `stateless` | spread |
+| `stateful` | least_resource |
+| `batch` | binpack |
+| `daemon` | all feasible nodes |
 
 ## Validation
 
-The orchestrator automatically validates the configuration:
-- CPU must be at least 5 millicores
-- Memory must be at least 16MB
-- Valid service names
-- Required fields are specified
+The orchestrator automatically validates the configuration.
 
 To validate configuration without starting the orchestrator:
 ```bash
-go run cmd/validator/main.go --config config.yaml
+go run cmd/validator/main.go
 ```
 
-*Configuration Version: 1.0*
-
-### Running the Master
-
-*(Instruction will be added once the basic API is stable)*
-```bash
-./go-orchestrator agent --master-url=<master-address>
-```
-
-## 🤝 Contributing
+## Contributing
 As this is a Master's thesis project, the primary development is done by me. However, constructive feedback, suggestions, and discussions are highly welcome! Please feel free to open an issue to start a conversation.
 
-## 📜 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 📚 Academic Context
+## Academic Context
 This project is developed as a core component of my Master's thesis in "Computer Science" at SBMPEI. The focus is on researching and implementing scheduling algorithms and distributed systems principles.
-
-
-
-<div align="center">
-Happy Coding! 👨‍💻
-
-</div>
