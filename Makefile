@@ -18,10 +18,6 @@ clean-all: clean
 	@echo "🧹 Removing gorchester images..."
 	@docker images --filter "reference=gorchester-*" -q | xargs -r docker rmi || true
 
-# Run tests
-test:
-	go test -v ./...
-
 # Build
 build:
 	go build -o bin/gorchester cmd/gorchester/main.go
@@ -38,4 +34,3 @@ help:
 	@echo "  make clean-all  - Remove containers and images"
 	@echo "  make run-fast   - Run without cleanup"
 	@echo "  make build      - Build binary"
-	@echo "  make test       - Run tests"

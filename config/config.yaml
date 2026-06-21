@@ -1,7 +1,6 @@
 env: "local"
 listen_addr: ":8080"
-data_dir: "./test-data"
-cluster_name: "stress-test"
+cluster_name: "scale-demo"
 
 nodes:
   - id: "node-1"
@@ -54,30 +53,6 @@ services:
         prediction_window: 60
         cpu_threshold: 3.0
         memory_threshold: 85.0
-    health_check:
-      type: "command"
-      command: ["echo", "healthy"]
-      interval: "30s"
-      timeout: "5s"
-      retries: 2
-
-  - service_name: "echo-service"
-    image: "busybox:latest"
-    service_type: "daemon"
-    replicas: 1
-    command:
-      - "sh"
-      - "-c"
-      - "echo 'Test service running' && sleep 3600"
-    resources:
-      cpu_millicores: 50
-      memory_bytes: 33554432
-    scale_policy:
-      min_replicas: 1
-      max_replicas: 3
-      target_cpu: 50.0
-      target_memory: 50.0
-      cooldown_seconds: 300
     health_check:
       type: "command"
       command: ["echo", "healthy"]
