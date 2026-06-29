@@ -1,6 +1,6 @@
 env: "local"
 listen_addr: ":8080"
-cluster_name: "scale-demo"
+cluster_name: "final-test"
 
 nodes:
   - id: "node-1"
@@ -26,36 +26,39 @@ nodes:
       zone: "a"
 
 services:
-  - service_name: "cpu-worker"
-    image: "alpine:latest"
+  - service_name: "web-server"
+    image: "nginx:alpine"
     service_type: "stateless"
-    replicas: 1
-    command:
-      - "sh"
-      - "-c"
-      - "while true; do echo 'scale=5000; a(1)*4' | bc -l > /dev/null; done"
+    replicas: 3
     ports:
       - host_port: 0
-        container_port: 8080
+        container_port: 80
         protocol: "tcp"
     resources:
-      cpu_millicores: 500
+      cpu_millicores: 200
       memory_bytes: 134217728
-    scale_policy:
-      min_replicas: 1
-      max_replicas: 6
-      target_cpu: 3.0
-      target_memory: 80.0
-      cooldown_seconds: 30
-      predictive_scaling:
-        enabled: true
-        lookback_window: 300
-        prediction_window: 60
-        cpu_threshold: 3.0
-        memory_threshold: 85.0
     health_check:
-      type: "command"
-      command: ["echo", "healthy"]
-      interval: "30s"
+      type: "http"
+      http_path: "/"
+      port: 80
+      interval: "10s"
       timeout: "5s"
-      retries: 2
+      retries: 3
+
+  - service_name: "redis-cache"
+    image: "redis:alpine"
+    service_type: "stateful"
+    replicas: 1
+    ports:
+      - host_port: 0
+        container_port: 6379
+        protocol: "tcp"
+    resources:
+      cpu_millicores: 100
+      memory_bytes: 67108864
+    health_check:
+      type: "tcp"
+      port: 6379
+      interval: "15s"
+      timeout: "5s"
+      retries: 3

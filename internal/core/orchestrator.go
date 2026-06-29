@@ -229,8 +229,20 @@ func (o *Orchestrator) initServices() error {
 			return fmt.Errorf("failed to list tasks for service %s: %w", svc.ServiceName, err)
 		}
 
+		// For Daemon services
+		replicas := svc.Replicas
+		if svc.ServiceType == types.ServiceTypeDaemon {
+			nodes, err := o.scheduler.GetNodes(ctx)
+			if err != nil {
+				o.logger.Error("failed to get nodes for daemon init",
+					"service", svc.ServiceName, "error", err)
+				continue
+			}
+			replicas = svc.Replicas * len(nodes)
+		}
+
 		// Make replicas
-		for i := len(existingTasks); i < svc.Replicas; i++ {
+		for i := len(existingTasks); i < replicas; i++ {
 			if err := o.createServiceTask(ctx, &svc); err != nil {
 				o.logger.Error("failed to create task during init",
 					"service", svc.ServiceName,
@@ -709,6 +721,14 @@ func (o *Orchestrator) reconcile() {
 func (o *Orchestrator) calculateDesiredReplicas(service *types.ServiceConfig, currentReplicas int) int {
 	desired := service.Replicas
 
+	// Daemon -> replica for each node
+	if service.ServiceType == types.ServiceTypeDaemon {
+		nodes, err := o.scheduler.GetNodes(o.ctx)
+		if err == nil {
+			desired = service.Replicas * len(nodes)
+		}
+	}
+
 	o.logger.Debug("calculating desired replicas",
 		"service", service.ServiceName,
 		"base_desired", desired,
@@ -733,7 +753,7 @@ func (o *Orchestrator) calculateDesiredReplicas(service *types.ServiceConfig, cu
 		desired = service.ScalePolicy.MaxReplicas
 	}
 
-	// Chack actual vs desired state
+	// Check actual vs desired state
 	diff := desired - currentReplicas
 	if diff > 0 {
 		o.logger.Debug("need to scale up",

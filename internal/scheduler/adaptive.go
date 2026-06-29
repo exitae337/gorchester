@@ -177,6 +177,11 @@ func (s *SimpleScheduler) selectDaemonNode(nodes []*types.Node, task *types.Task
 	}
 
 	for _, node := range nodes {
+
+		if node.Status != types.NodeStatusReady {
+			continue
+		}
+
 		hasDaemon := false
 		s.mu.RLock()
 		for _, t := range s.getNodeTasks(node.ID) {
